@@ -1,0 +1,48 @@
+name: build-k27
+
+# Build the xnu-12377 (macOS/iOS 26.5) kernel from the public none24smu/UniXNU ios26 branch.
+# This is the first step toward the macOS 27.0.1 kernel that DroidVM boots.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    steps:
+      - name: Checkout UniXNU ios26 (xnu-12377 build scripts + patches)
+        uses: actions/checkout@v4
+        with:
+          repository: none24smu/UniXNU
+          ref: ios26
+          path: unixnu-ios26
+
+      - name: Install host tools
+        run: brew install unifdef cmake ninja
+
+      - name: Build xnu-12377 kernel
+        working-directory: unixnu-ios26
+        run: |
+          echo "== toolchain =="
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          clang --version | head -2
+          echo "== build =="
+          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh 2>&1 | tail -80
+
+      - name: Locate kernel output
+        if: always()
+        run: |
+          ls -la unixnu-ios26/build/xnu-12377.121.6/ 2>/dev/null || echo "no build dir"
+          find unixnu-ios26/build -name "mach.development.bcm2837*" 2>/dev/null | head
+
+      - name: Upload kernel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-12377-kernel
+          path: |
+            unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837*
+          if-no-files-found: ignore
+          retention-days: 7
