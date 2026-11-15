@@ -17,6 +17,8 @@ jobs:
       - name: Clone UniXNU (packed_ramdisk dependency)
         run: |
           git clone --depth 1 --filter=blob:none https://github.com/UniXNU/UniXNU.git sources/UniXNU
+          git -C sources/UniXNU submodule update --init --depth 1 drivers/DarwinBoot
+          ls sources/UniXNU/drivers/DarwinBoot/Test/packed_ramdisk.py
 
       - name: Download decrypted firmware
         uses: actions/download-artifact@v4
