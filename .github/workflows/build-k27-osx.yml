@@ -1,8 +1,12 @@
 name: build-k27-osx
 
-# Build xnu-12377 as the macOS-target arm64e kernel (closer to the official k27 kernel):
-# uses the full UniXNU patches/xnu-12377 (73 patches) instead of the community ios26 (21 patches),
-# and switches ARCH_CONFIGS=ARM64E + -DXNU_TARGET_OS_OSX.
+# Build xnu-12377.121.6 as the macOS-target arm64e kernel — the k27 kernel that
+# Droid-VM/macOS-DroidVM boots (patches/xnu-12377, 47 patches, validated to replay
+# from ac9718f). Uses none24smu/UniXNU ios26's build-xnu-12377.sh (KDK + xnu make),
+# but swaps in the 47 DroidVM patches and switches to the macOS kernel profile:
+#   ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64e  (PAC-enabled codegen)
+#   -DXNU_TARGET_OS_OSX                             (macOS kext vtables/containers)
+# ARCH_CONFIGS stays ARM64 (BCM2837 machine config), as in the official build script.
 
 on:
   workflow_dispatch:
@@ -19,30 +23,29 @@ jobs:
           ref: ios26
           path: unixnu-ios26
 
-      - name: Checkout UniXNU main (73 official patches)
+      - name: Checkout DroidVM macOS (47 validated k27 patches)
         uses: actions/checkout@v4
         with:
-          repository: UniXNU/UniXNU
-          path: unixnu-main
+          repository: QQ127/macOS-DroidVM
+          path: droidvm
 
       - name: Install host tools
         run: brew install unifdef cmake ninja
 
-      - name: Replace community patches with official 73 patches
+      - name: Swap in the 47 DroidVM k27 patches
         run: |
           rm -rf unixnu-ios26/patches/xnu-12377
-          cp -R unixnu-main/patches/xnu-12377 unixnu-ios26/patches/xnu-12377
-          echo "patches: $(ls unixnu-ios26/patches/xnu-12377 | wc -l)"
+          cp -R droidvm/patches/xnu-12377 unixnu-ios26/patches/xnu-12377
+          echo "patches: $(ls unixnu-ios26/patches/xnu-12377/*.patch | wc -l)"
 
       - name: Switch to arm64e + macOS target
         run: |
           cd unixnu-ios26
           sed -i.bak \
-            -e 's/ARCH_CONFIGS=ARM64 /ARCH_CONFIGS=ARM64E /' \
             -e 's/ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64 /ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64e /' \
             -e 's/-DXNU_TARGET_OS_IOS/-DXNU_TARGET_OS_OSX/' \
             scripts/build-xnu-12377.sh
-          grep -nE "ARCH_CONFIGS|ARCH_STRING_FOR|TARGET_OS" scripts/build-xnu-12377.sh | head
+          grep -nE "ARCH_STRING_FOR|TARGET_OS" scripts/build-xnu-12377.sh | head
 
       - name: Build xnu-12377 arm64e macOS kernel
         working-directory: unixnu-ios26
@@ -51,13 +54,16 @@ jobs:
           xcodebuild -version
           clang --version | head -2
           echo "== build =="
-          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh 2>&1 | tail -100
+          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh 2>&1 | tee /tmp/build.log | tail -120
+          test ${PIPESTATUS[0]} -eq 0
 
       - name: Locate kernel output
         if: always()
         run: |
           find unixnu-ios26/build -name "mach.development.bcm2837*" 2>/dev/null | head
-          ls -la unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64E_BCM2837/ 2>/dev/null | head
+          ls -la unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64_BCM2837/ 2>/dev/null | head
+          echo "--- errors (if any) ---"
+          grep -aE "error:|Undefined symbols|duplicate symbol" /tmp/build.log 2>/dev/null | head -30
 
       - name: Upload kernel
         if: always()
@@ -65,6 +71,6 @@ jobs:
         with:
           name: xnu-12377-osx-kernel
           path: |
-            unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64E_BCM2837/mach.development.bcm2837*
+            unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837*
           if-no-files-found: ignore
           retention-days: 7
