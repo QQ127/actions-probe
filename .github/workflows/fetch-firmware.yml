@@ -1,0 +1,84 @@
+name: fetch-firmware
+
+# Download and AEA-decrypt the macOS 27.0.1 (26A434) firmware members needed for the disk image:
+#   OS (043-70867-640.dmg.aea, 10.5 GiB)  -> OS.dmg
+#   Cryptex1,SystemOS (043-70701-651.dmg.aea, 2.25 GiB) -> SystemOS.dmg
+#   Cryptex1,AppOS (043-70637-690.dmg, 52 MiB) -> AppOS.dmg
+# AEA decryption needs macOS /usr/bin/aea, so this job runs on a macOS runner.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: macos-26
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ipsw tool
+        run: brew install blacktop/tap/ipsw
+
+      - name: Inventory IPSW identities
+        run: |
+          python3 scripts/macos-inputs.py \
+            --profile configs/macos-27.0.1-26A434.json \
+            --output artifacts/27.0.1/metadata
+
+      - name: Fetch and decrypt OS (10.5 GiB)
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/27.0.1
+          python3 scripts/macos-fetch-member.py OS \
+            --profile configs/macos-27.0.1-26A434.json \
+            --inventory artifacts/27.0.1/metadata/identities.json \
+            --identity vma2macosap \
+            --output-dir artifacts/27.0.1
+          AEA=artifacts/27.0.1/043-70867-640.dmg.aea
+          KEY=$(ipsw fw aea --key "$AEA" | grep '^base64:' | head -1)
+          echo "OS key obtained (${#KEY} chars)"
+          /usr/bin/aea decrypt -i "$AEA" -o artifacts/27.0.1/OS.dmg -key-value "$KEY"
+          rm -f "$AEA"
+          ls -la artifacts/27.0.1/OS.dmg
+
+      - name: Fetch and decrypt SystemOS (2.25 GiB)
+        run: |
+          set -euo pipefail
+          python3 scripts/macos-fetch-member.py 'Cryptex1,SystemOS' \
+            --profile configs/macos-27.0.1-26A434.json \
+            --inventory artifacts/27.0.1/metadata/identities.json \
+            --identity vma2macosap \
+            --output-dir artifacts/27.0.1
+          AEA=artifacts/27.0.1/043-70701-651.dmg.aea
+          KEY=$(ipsw fw aea --key "$AEA" | grep '^base64:' | head -1)
+          echo "SystemOS key obtained (${#KEY} chars)"
+          /usr/bin/aea decrypt -i "$AEA" -o artifacts/27.0.1/SystemOS.dmg -key-value "$KEY"
+          rm -f "$AEA"
+          ls -la artifacts/27.0.1/SystemOS.dmg
+
+      - name: Fetch AppOS (52 MiB, not AEA)
+        run: |
+          set -euo pipefail
+          python3 scripts/macos-fetch-member.py 'Cryptex1,AppOS' \
+            --profile configs/macos-27.0.1-26A434.json \
+            --inventory artifacts/27.0.1/metadata/identities.json \
+            --identity vma2macosap \
+            --output-dir artifacts/27.0.1
+          mv artifacts/27.0.1/043-70637-690.dmg artifacts/27.0.1/AppOS.dmg
+          ls -la artifacts/27.0.1/AppOS.dmg
+
+      - name: Upload firmware members
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-macos27
+          path: |
+            artifacts/27.0.1/OS.dmg
+            artifacts/27.0.1/SystemOS.dmg
+            artifacts/27.0.1/AppOS.dmg
+            artifacts/27.0.1/metadata/
+          retention-days: 3
+          if-no-files-found: error
