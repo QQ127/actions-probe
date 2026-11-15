@@ -21,10 +21,12 @@ jobs:
           ls sources/UniXNU/drivers/DarwinBoot/Test/packed_ramdisk.py
 
       - name: Download decrypted firmware
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v6
         with:
+          workflow: fetch-firmware.yml
           name: firmware-macos27
           path: artifacts/27.0.1
+          branch: main
 
       - name: Install Linux deps
         run: |

@@ -1,0 +1,70 @@
+name: build-k27-osx
+
+# Build xnu-12377 as the macOS-target arm64e kernel (closer to the official k27 kernel):
+# uses the full UniXNU patches/xnu-12377 (73 patches) instead of the community ios26 (21 patches),
+# and switches ARCH_CONFIGS=ARM64E + -DXNU_TARGET_OS_OSX.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    steps:
+      - name: Checkout UniXNU ios26 (build script)
+        uses: actions/checkout@v4
+        with:
+          repository: none24smu/UniXNU
+          ref: ios26
+          path: unixnu-ios26
+
+      - name: Checkout UniXNU main (73 official patches)
+        uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          path: unixnu-main
+
+      - name: Install host tools
+        run: brew install unifdef cmake ninja
+
+      - name: Replace community patches with official 73 patches
+        run: |
+          rm -rf unixnu-ios26/patches/xnu-12377
+          cp -R unixnu-main/patches/xnu-12377 unixnu-ios26/patches/xnu-12377
+          echo "patches: $(ls unixnu-ios26/patches/xnu-12377 | wc -l)"
+
+      - name: Switch to arm64e + macOS target
+        run: |
+          cd unixnu-ios26
+          sed -i.bak \
+            -e 's/ARCH_CONFIGS=ARM64 /ARCH_CONFIGS=ARM64E /' \
+            -e 's/ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64 /ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64e /' \
+            -e 's/-DXNU_TARGET_OS_IOS/-DXNU_TARGET_OS_OSX/' \
+            scripts/build-xnu-12377.sh
+          grep -nE "ARCH_CONFIGS|ARCH_STRING_FOR|TARGET_OS" scripts/build-xnu-12377.sh | head
+
+      - name: Build xnu-12377 arm64e macOS kernel
+        working-directory: unixnu-ios26
+        run: |
+          echo "== toolchain =="
+          xcodebuild -version
+          clang --version | head -2
+          echo "== build =="
+          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh 2>&1 | tail -100
+
+      - name: Locate kernel output
+        if: always()
+        run: |
+          find unixnu-ios26/build -name "mach.development.bcm2837*" 2>/dev/null | head
+          ls -la unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64E_BCM2837/ 2>/dev/null | head
+
+      - name: Upload kernel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-12377-osx-kernel
+          path: |
+            unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64E_BCM2837/mach.development.bcm2837*
+          if-no-files-found: ignore
+          retention-days: 7
