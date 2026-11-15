@@ -62,6 +62,24 @@ jobs:
             scripts/build-xnu-12377.sh
           grep -nE "SDKROOT=|ARCH_STRING_FOR|TARGET_OS|ARCHS=|VALID_ARCHS=" scripts/build-xnu-12377.sh | head
 
+      - name: Patch build-platform-12377.py for arm64e + macOS target
+        run: |
+          cd unixnu-ios26
+          python3 - <<'PY'
+          p = 'scripts/build-platform-12377.py'
+          s = open(p).read()
+          old1 = "if struct.unpack_from('<4I', data) != (0xfeedfacf, 0x100000c, 0, 1):\n    raise SystemExit('Expected a plain ARM64 Mach-O object')"
+          new1 = "magic, cputype, subtype, filetype = struct.unpack_from('<4I', data)\nif (magic, cputype, filetype) != (0xfeedfacf, 0x100000c, 1):\n    raise SystemExit(f'Expected an ARM64 Mach-O object, got magic={magic:#x} cputype={cputype:#x} subtype={subtype:#x} filetype={filetype}')"
+          assert old1 in s, 'object-check pattern not found'
+          s = s.replace(old1, new1)
+          old2 = "if deployment != (2, 26 << 16):\n    raise SystemExit(f'Expected iOS 26 deployment, found {deployment}')"
+          new2 = "if deployment is None or deployment[1] != 26 << 16 or deployment[0] not in (1, 2):\n    raise SystemExit(f'Expected iOS/macOS 26 deployment, found {deployment}')"
+          assert old2 in s, 'deployment-check pattern not found'
+          s = s.replace(old2, new2)
+          open(p, 'w').write(s)
+          print('patched build-platform-12377.py for arm64e/macOS')
+          PY
+
       - name: Pass 1 - plain layout (owner macros + board drivers, no KC segaddrs)
         working-directory: unixnu-ios26
         run: |
