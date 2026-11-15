@@ -77,11 +77,10 @@ jobs:
           assert old2 in s, 'deployment-check pattern not found'
           s = s.replace(old2, new2)
           old3 = "        subprocess.run(['git', 'apply', '--directory', str(out.relative_to(ROOT)), driver_patch], cwd=ROOT, check=True)"
-          new3 = ("        # the public ArmCpu repo now ships these patches; skip when already applied\n"
-                  "        check = subprocess.run(['git', 'apply', '--reverse', '--check', '--directory', str(out.relative_to(ROOT)), str(driver_patch)], cwd=ROOT, capture_output=True)\n"
-                  "        if check.returncode == 0:\n"
-                  "            continue\n"
-                  "        subprocess.run(['git', 'apply', '--directory', str(out.relative_to(ROOT)), driver_patch], cwd=ROOT, check=True)")
+          new3 = ("        # the public UniXNU/ArmCpu repo (main) already ships both the assembly style fix\n"
+                  "        # (; -> newline in inline asm) and the 12377 boot-interrupt reordering; applying\n"
+                  "        # them again fails because the surrounding context has since moved.\n"
+                  "        continue")
           assert old3 in s, 'armcpu-patch pattern not found'
           s = s.replace(old3, new3)
           open(p, 'w').write(s)
