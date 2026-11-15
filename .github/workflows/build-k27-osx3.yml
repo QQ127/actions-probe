@@ -1,0 +1,85 @@
+name: build-k27-osx3
+
+# Correct combination: the 47 DroidVM k27 patches (macOS 27 port) + the macOS 27.0.1
+# (26A434) Kernel Debug Kit + arm64e/XNU_TARGET_OS_OSX. osx2 proved the plain flag flip
+# alone is not enough (JOP/arm64e symbols missing without the k27 patches), and osx1 proved
+# the 47 patches + the ios26 script's 26.5.2 KDK breaks installhdrs — so this run pins the
+# matching 26A434 KDK.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      UNIXNU_KDK_URL: https://github.com/dortania/KdkSupportPkg/releases/download/26A434/Kernel_Debug_Kit_27.0.1_build_26A434.dmg
+      UNIXNU_KDK_SHA256: 9d0122b21427a78b4659da16d4363ec859bb2058a7a666332191e79a5a6ac96e
+    steps:
+      - name: Checkout UniXNU ios26 (build machinery)
+        uses: actions/checkout@v4
+        with:
+          repository: none24smu/UniXNU
+          ref: ios26
+          path: unixnu-ios26
+
+      - name: Checkout DroidVM macOS (47 k27 patches)
+        uses: actions/checkout@v4
+        with:
+          repository: QQ127/macOS-DroidVM
+          path: droidvm
+
+      - name: Install host tools
+        run: brew install unifdef cmake ninja
+
+      - name: Swap in the 47 DroidVM k27 patches
+        run: |
+          rm -rf unixnu-ios26/patches/xnu-12377
+          cp -R droidvm/patches/xnu-12377 unixnu-ios26/patches/xnu-12377
+          echo "patches: $(ls unixnu-ios26/patches/xnu-12377/*.patch | wc -l)"
+
+      - name: Switch to arm64e + macOS target
+        run: |
+          cd unixnu-ios26
+          sed -i.bak \
+            -e 's|SDKROOT="${XNU_SDKROOT:-iphoneos}"|SDKROOT="${XNU_SDKROOT:-macosx}"|' \
+            -e 's|ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64 |ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64e |' \
+            -e 's|-miphoneos-version-min=$IOS_MIN -DXNU_TARGET_OS_IOS|-mmacosx-version-min=$IOS_MIN -DXNU_TARGET_OS_OSX|' \
+            -e 's|-Wl,-ios_version_min,$IOS_MIN|-Wl,-macosx_version_min,$IOS_MIN|' \
+            scripts/build-xnu-12377.sh
+          grep -nE "SDKROOT=|ARCH_STRING_FOR|TARGET_OS|version_min" scripts/build-xnu-12377.sh | head -20
+
+      - name: Build xnu-12377 arm64e macOS kernel (full log)
+        working-directory: unixnu-ios26
+        run: |
+          echo "== toolchain =="
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          echo "== KDK =="
+          echo "$UNIXNU_KDK_URL"
+          echo "== build =="
+          set +e
+          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh > /tmp/build.log 2>&1
+          rc=$?
+          echo "build rc=$rc"
+          tail -60 /tmp/build.log
+          exit $rc
+
+      - name: Upload full build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osx3-build-log
+          path: /tmp/build.log
+          if-no-files-found: error
+
+      - name: Upload kernel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-12377-osx3-kernel
+          path: |
+            unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837*
+          if-no-files-found: ignore
+          retention-days: 7
