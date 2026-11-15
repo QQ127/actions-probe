@@ -76,8 +76,16 @@ jobs:
           new2 = "if deployment is None or deployment[1] != 26 << 16 or deployment[0] not in (1, 2):\n    raise SystemExit(f'Expected iOS/macOS 26 deployment, found {deployment}')"
           assert old2 in s, 'deployment-check pattern not found'
           s = s.replace(old2, new2)
+          old3 = "        subprocess.run(['git', 'apply', '--directory', str(out.relative_to(ROOT)), driver_patch], cwd=ROOT, check=True)"
+          new3 = ("        # the public ArmCpu repo now ships these patches; skip when already applied\n"
+                  "        check = subprocess.run(['git', 'apply', '--reverse', '--check', '--directory', str(out.relative_to(ROOT)), str(driver_patch)], cwd=ROOT, capture_output=True)\n"
+                  "        if check.returncode == 0:\n"
+                  "            continue\n"
+                  "        subprocess.run(['git', 'apply', '--directory', str(out.relative_to(ROOT)), driver_patch], cwd=ROOT, check=True)")
+          assert old3 in s, 'armcpu-patch pattern not found'
+          s = s.replace(old3, new3)
           open(p, 'w').write(s)
-          print('patched build-platform-12377.py for arm64e/macOS')
+          print('patched build-platform-12377.py for arm64e/macOS + skip applied ArmCpu patches')
           PY
 
       - name: Pass 1 - plain layout (owner macros + board drivers, no KC segaddrs)
