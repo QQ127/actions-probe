@@ -1,0 +1,85 @@
+name: build-k27-osx5
+
+# The fork's own k27/build-kernel27.sh keeps SDKROOT=iphoneos (PLATFORM=iPhoneOS,
+# small-memory layout, ARM64_LINK_ADDR 0xfffffff007004000 — matching k27/segaddrs.sh)
+# and only switches ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64e and
+# -DXNU_TARGET_OS_OSX. osx4's SDKROOT=macosx flipped the fork's MakeInc.def into
+# ARM64_LARGE_MEMORY=1, tripping the kalloc.c PAC static assertion. So: 47 patches +
+# 26A434 KDK + GNU sed + arm64e + OSX, SDKROOT stays iphoneos.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      UNIXNU_KDK_URL: https://github.com/dortania/KdkSupportPkg/releases/download/26A434/Kernel_Debug_Kit_27.0.1_build_26A434.dmg
+      UNIXNU_KDK_SHA256: 9d0122b21427a78b4659da16d4363ec859bb2058a7a666332191e79a5a6ac96e
+    steps:
+      - name: Checkout UniXNU ios26 (build machinery)
+        uses: actions/checkout@v4
+        with:
+          repository: none24smu/UniXNU
+          ref: ios26
+          path: unixnu-ios26
+
+      - name: Checkout DroidVM macOS (47 k27 patches)
+        uses: actions/checkout@v4
+        with:
+          repository: QQ127/macOS-DroidVM
+          path: droidvm
+
+      - name: Install host tools (incl. GNU sed)
+        run: |
+          brew install unifdef cmake ninja gnu-sed
+          echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
+
+      - name: Swap in the 47 DroidVM k27 patches
+        run: |
+          rm -rf unixnu-ios26/patches/xnu-12377
+          cp -R droidvm/patches/xnu-12377 unixnu-ios26/patches/xnu-12377
+          echo "patches: $(ls unixnu-ios26/patches/xnu-12377/*.patch | wc -l)"
+
+      - name: Switch to arm64e + macOS target (SDKROOT stays iphoneos)
+        run: |
+          cd unixnu-ios26
+          sed -i.bak \
+            -e 's|ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64 |ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64e |' \
+            -e 's|-DXNU_TARGET_OS_IOS|-DXNU_TARGET_OS_OSX|' \
+            scripts/build-xnu-12377.sh
+          echo "--- resulting build_kernel flags ---"
+          grep -nE "SDKROOT=|ARCH_STRING_FOR|TARGET_OS|version_min|LARGE_MEMORY|LINK_ADDR" scripts/build-xnu-12377.sh | head -20
+          echo "sed is $(command -v sed)"
+
+      - name: Build xnu-12377 arm64e macOS kernel (full log)
+        working-directory: unixnu-ios26
+        run: |
+          echo "== toolchain =="
+          xcodebuild -version
+          echo "== build =="
+          set +e
+          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh > /tmp/build.log 2>&1
+          rc=$?
+          echo "build rc=$rc"
+          tail -60 /tmp/build.log
+          exit $rc
+
+      - name: Upload full build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osx5-build-log
+          path: /tmp/build.log
+          if-no-files-found: error
+
+      - name: Upload kernel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-12377-osx5-kernel
+          path: |
+            unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837*
+          if-no-files-found: ignore
+          retention-days: 7
