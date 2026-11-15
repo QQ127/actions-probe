@@ -1,0 +1,61 @@
+name: make-disk
+
+# Build the macOS 27.0.1 APFS disk image (data-store.img + scratch-data.img) from the
+# decrypted firmware members produced by the fetch-firmware workflow. Runs on Linux
+# because make-macos-disk.py needs the linux-apfs-rw driver (losetup + mount + insmod).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  make-disk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone UniXNU (packed_ramdisk dependency)
+        run: |
+          git clone --depth 1 --filter=blob:none https://github.com/UniXNU/UniXNU.git sources/UniXNU
+
+      - name: Download decrypted firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-macos27
+          path: artifacts/27.0.1
+
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential linux-headers-$(uname -r) liblzfse1 lzfse-tools
+
+      - name: Build linux-apfs-rw driver
+        run: |
+          git clone --depth 1 https://github.com/linux-apfs/linux-apfs-rw.git sources/linux-apfs-rw
+          make -C sources/linux-apfs-rw -j$(nproc)
+          ls -la sources/linux-apfs-rw/apfs.ko
+
+      - name: Expand OS and organize members
+        run: |
+          mkdir -p artifacts/27.0.1/dec artifacts/27.0.1/app-cryptex
+          python3 scripts/udif-expand.py artifacts/27.0.1/OS.dmg artifacts/27.0.1/os.raw
+          mv artifacts/27.0.1/SystemOS.dmg artifacts/27.0.1/dec/SystemOS.dmg
+          mv artifacts/27.0.1/AppOS.dmg artifacts/27.0.1/app-cryptex/AppOS.dmg
+          ls -la artifacts/27.0.1/
+
+      - name: Make macOS disk
+        run: |
+          MACOS_TAG=27.0.1 sudo -E python3 scripts/make-macos-disk.py --size-gib 48 artifacts/27.0.1/disk 2>&1 | tail -40
+          ls -la artifacts/27.0.1/disk/
+
+      - name: Upload disk image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos27-disk
+          path: |
+            artifacts/27.0.1/disk/data-store.img
+            artifacts/27.0.1/disk/scratch-data.img
+            artifacts/27.0.1/disk/disk.json
+          if-no-files-found: ignore
+          retention-days: 3
