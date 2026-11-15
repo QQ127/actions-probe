@@ -1,13 +1,15 @@
 name: build-k27-kc
 
-# Build the k27 KC-layout kernel: the xnu-12377 arm64e macOS kernel linked with
-# k27/segaddrs.sh (XNU_KC_SEGADDRS) so its segments sit in the holes of kc27.bin,
-# plus the owner bring-up macros (XNU_NATIVE_RAM_BLOCK / XNU_OWNER_* / XNU_NATIVE_CS_HASH_CACHE)
-# and the DroidVM board drivers (ArmDTPlatform + ArmCpu). This is the kernel that
-# k27/kc-build27.py links into a macOS 27 kernel collection.
+# Build the k27 KC-layout kernel: xnu-12377 arm64e macOS kernel with owner macros and
+# ArmDTPlatform/ArmCpu, linked with a KC segment layout computed by k27/kc27-layout.py
+# from the actual kernel sizes (the committed segaddrs.sh assumed a smaller __TEXT_EXEC).
 #
-# Differs from build-k27-osx6 only by: XNU_KC_SEGADDRS, XNU_ARM_DT_PLATFORM=1,
-# XNU_ARMCPU=1, and the owner macros in XNU_EXTRA_CFLAGS.
+# Two passes:
+#   1. plain layout (no XNU_KC_SEGADDRS) -> a fully linked kernel to measure segment sizes;
+#   2. kc27-layout.py regenerates k27/segaddrs.sh from those sizes + kc27.bin, then relink.
+#
+# kc27.bin is re-extracted here from the IPSW KernelCache member (23 MiB + ipsw decompress),
+# so this job is self-contained.
 
 on:
   workflow_dispatch:
@@ -39,9 +41,9 @@ jobs:
           git clone --depth 1 https://github.com/UniXNU/ArmDTPlatform.git unixnu-ios26/drivers/ArmDTPlatform
           ls unixnu-ios26/drivers/ArmCpu/ArmCpu.cpp unixnu-ios26/drivers/ArmDTPlatform/ArmDTPlatform.cpp
 
-      - name: Install host tools (incl. GNU sed)
+      - name: Install host tools (ipsw + GNU sed)
         run: |
-          brew install unifdef cmake ninja gnu-sed
+          brew install unifdef cmake ninja gnu-sed blacktop/tap/ipsw
           echo "$(brew --prefix gnu-sed)/libexec/gnubin" >> "$GITHUB_PATH"
 
       - name: Swap in the 47 DroidVM k27 patches
@@ -58,37 +60,82 @@ jobs:
             -e 's|-DXNU_TARGET_OS_IOS|-DXNU_TARGET_OS_OSX|' \
             -e 's|ARCHS=arm64 VALID_ARCHS=arm64 |ARCHS=arm64e VALID_ARCHS=arm64e |' \
             scripts/build-xnu-12377.sh
-          echo "--- resulting flags ---"
-          grep -nE "SDKROOT=|ARCH_STRING_FOR|TARGET_OS|version_min|LARGE_MEMORY|LINK_ADDR|ARCHS=|VALID_ARCHS=" scripts/build-xnu-12377.sh | head -20
+          grep -nE "SDKROOT=|ARCH_STRING_FOR|TARGET_OS|ARCHS=|VALID_ARCHS=" scripts/build-xnu-12377.sh | head
 
-      - name: Build xnu-12377 arm64e macOS KC-layout kernel (full log)
+      - name: Pass 1 - plain layout (owner macros + board drivers, no KC segaddrs)
         working-directory: unixnu-ios26
         run: |
           echo "== toolchain =="
           xcodebuild -version
-          echo "== KC segaddrs =="
-          export XNU_KC_SEGADDRS="$(bash "$GITHUB_WORKSPACE/droidvm/k27/segaddrs.sh")"
-          echo "$XNU_KC_SEGADDRS"
-          echo "== owner macros + board drivers =="
           export XNU_ARM_DT_PLATFORM=1
           export XNU_ARMCPU=1
           export XNU_NATIVE_ARCH_TIMER=1
           export XNU_SOURCE_CORECRYPTO14=0
           export XNU_EXTRA_CFLAGS="-Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding -DXNU_NATIVE_CS_HASH_CACHE=1 -DXNU_NATIVE_RAM_BLOCK=1 -DXNU_OWNER_CACHE_MOUNT=1 -DXNU_OWNER_BOOT_MANIFEST=1 -DXNU_OWNER_CACHE_STARTUP=1"
-          echo "== build =="
+          echo "== build (pass 1) =="
           set +e
-          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh > /tmp/build.log 2>&1
+          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh > /tmp/pass1.log 2>&1
           rc=$?
-          echo "build rc=$rc"
-          tail -80 /tmp/build.log
+          echo "pass1 rc=$rc"
+          tail -40 /tmp/pass1.log
           exit $rc
 
-      - name: Upload full build log
+      - name: Re-extract kc27.bin (macOS 27 kernel collection)
+        run: |
+          set -euo pipefail
+          cd droidvm
+          mkdir -p artifacts/27.0.1/metadata
+          python3 scripts/macos-inputs.py \
+            --profile configs/macos-27.0.1-26A434.json \
+            --output artifacts/27.0.1/metadata
+          python3 scripts/macos-fetch-member.py 'KernelCache' \
+            --profile configs/macos-27.0.1-26A434.json \
+            --inventory artifacts/27.0.1/metadata/identities.json \
+            --identity vma2macosap \
+            --output-dir artifacts/27.0.1
+          ipsw kernel dec artifacts/27.0.1/kernelcache.release.vma2 -o /tmp/kcdec
+          mv /tmp/kcdec/kernelcache.release.vma2.decompressed artifacts/27.0.1/kc27.bin
+          rmdir /tmp/kcdec
+          file artifacts/27.0.1/kc27.bin
+          ls -la artifacts/27.0.1/kc27.bin
+
+      - name: Regenerate KC segment layout (kc27-layout.py)
+        run: |
+          set -euo pipefail
+          KERNEL=unixnu-ios26/build/xnu-12377.121.6/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf
+          ls -la "$KERNEL"
+          cd droidvm
+          python3 k27/kc27-layout.py artifacts/27.0.1/kc27.bin "../$KERNEL" --write /tmp/segaddrs.sh
+          echo "--- regenerated segaddrs ---"
+          cat /tmp/segaddrs.sh
+
+      - name: Pass 2 - relink with the regenerated KC layout
+        working-directory: unixnu-ios26
+        run: |
+          export XNU_ARM_DT_PLATFORM=1
+          export XNU_ARMCPU=1
+          export XNU_NATIVE_ARCH_TIMER=1
+          export XNU_SOURCE_CORECRYPTO14=0
+          export XNU_EXTRA_CFLAGS="-Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding -DXNU_NATIVE_CS_HASH_CACHE=1 -DXNU_NATIVE_RAM_BLOCK=1 -DXNU_OWNER_CACHE_MOUNT=1 -DXNU_OWNER_BOOT_MANIFEST=1 -DXNU_OWNER_CACHE_STARTUP=1"
+          export XNU_KC_SEGADDRS="$(bash /tmp/segaddrs.sh)"
+          echo "== KC segaddrs =="
+          echo "$XNU_KC_SEGADDRS"
+          echo "== relink (pass 2) =="
+          set +e
+          JOBS=$(sysctl -n hw.ncpu) bash scripts/build-xnu-12377.sh > /tmp/pass2.log 2>&1
+          rc=$?
+          echo "pass2 rc=$rc"
+          tail -60 /tmp/pass2.log
+          exit $rc
+
+      - name: Upload full build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k27-kc-build-log
-          path: /tmp/build.log
+          path: |
+            /tmp/pass1.log
+            /tmp/pass2.log
           if-no-files-found: error
 
       - name: Upload KC-layout kernel
