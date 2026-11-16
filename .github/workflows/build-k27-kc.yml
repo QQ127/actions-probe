@@ -79,11 +79,13 @@ jobs:
           # DEPLOYMENT_TARGET_FLAGS is the one make variable this script already passes on the
           # command line that xnu appends to LDFLAGS_KERNEL (makedefs/MakeInc.def); the extra
           # -Wl,... flags are ignored during compile-only steps and only reach the final ld64 link.
-          # -Wl,-no_fixup_chains -Wl,-threaded_starts_section: ld64 defaults arm64e -static to
-          # chained fixups, but kc-build.py reads __TEXT,__thread_starts (threaded rebases), so the
-          # kernel must be linked with these two flags (same as the local XNU_LD_ARCHIVES).
+          # -Wl,-fixup_chains: an iOS-target arm64e -static link defaults to -no_fixup_chains
+          # (opcode rebases, empty __TEXT,__thread_starts). kc-build.py reads __TEXT,__thread_starts
+          # (threaded rebases), so force the chained-fixup format, which emits a non-empty
+          # __thread_starts. (-threaded_starts_section no longer exists on the macOS 27 ld64;
+          # it is implied by the chained-fixup format.)
           old_dtf = 'DEPLOYMENT_TARGET_FLAGS="-miphoneos-version-min=$IOS_MIN -DXNU_TARGET_OS_OSX" \\\n'
-          new_dtf = 'DEPLOYMENT_TARGET_FLAGS="-miphoneos-version-min=$IOS_MIN -DXNU_TARGET_OS_OSX -Wl,-no_fixup_chains -Wl,-threaded_starts_section ${XNU_KC_SEGADDRS:-}" \\\n'
+          new_dtf = 'DEPLOYMENT_TARGET_FLAGS="-miphoneos-version-min=$IOS_MIN -DXNU_TARGET_OS_OSX -Wl,-fixup_chains ${XNU_KC_SEGADDRS:-}" \\\n'
           assert old_dtf in s, 'deployment-target-flags line not found'
           s = s.replace(old_dtf, new_dtf, 1)
 
