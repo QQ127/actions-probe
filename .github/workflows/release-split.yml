@@ -1,0 +1,59 @@
+name: Release VMPKG via permanent CDN (split <2GB)
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'pack run id that produced macOS-27.2-vmpkg artifact'
+        required: true
+        default: '44136829376'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download packed vmpkg artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/v"
+          gh run download "${{ inputs.source_run }}" \
+            --repo "${{ github.repository }}" \
+            --name "macOS-27.2-vmpkg" \
+            --dir "$RUNNER_TEMP/v"
+          echo "=== downloaded ==="
+          find "$RUNNER_TEMP/v" -type f -printf '%f %s bytes\n'
+          df -h "$RUNNER_TEMP"
+
+      - name: Split into sub-2GB zip volumes (store, no recompress)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/v"
+          F=$(find . -type f -name '*.vmpkg' | head -1)
+          echo "source file: $F ; size: $(stat -c %s "$F")"
+          # -0 = store only (no recompress, fast). 1900m < 2GiB release asset limit
+          zip -s 1900m -0 macos-27.2.split.zip "$F"
+          echo "=== volumes ==="
+          ls -lh macos-27.2.split.z* 
+          echo "=== count ==="
+          ls macos-27.2.split.z* | wc -l
+
+      - name: Create GitHub Release and upload all volumes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/v"
+          gh release create macos-27.2-split \
+            --title "macOS 27.2 VMPKG (split volumes)" \
+            --notes "Download ALL parts into ONE folder. Open macos-27.2.split.zip with ZArchiver/WinRAR to auto-merge and extract macOS-27.2.vmpkg. Then import into DroidVM." \
+            macos-27.2.split.zip macos-27.2.split.z0*
+          echo "=== release assets ==="
+          gh release view macos-27.2-split --json url,assets
