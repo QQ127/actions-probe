@@ -29,7 +29,10 @@ VERIFY = HERE / "verify_vmpkg.py"
 DISK_FILES = ["data-store.img", "scratch-data.img"]
 BOOT_FILES = [
     ("boot.img", "boot.img", "uefi"),
-    ("kernel.macho.trustcache", "kernel.macho.trustcache", "kernel"),
+    # FIX: kernel.macho.trustcache is a Mach-O code-signing trust cache, NOT a
+    # loadable kernel image. Marking it kind="kernel" makes crosvm try to load
+    # it via --kernel -> "invalid magic number" -> VM exits code 1.
+    # macOS is booted purely by boot.img (UEFI/DarwinBoot); no separate kernel.
 ]
 
 
