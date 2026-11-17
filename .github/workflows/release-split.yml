@@ -50,10 +50,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd "$RUNNER_TEMP/v"
+          V="$RUNNER_TEMP/v"
+          # gh release create needs to run INSIDE the git repo (GITHUB_WORKSPACE)
+          cd "$GITHUB_WORKSPACE"
           gh release create macos-27.2-split \
+            --repo "$GITHUB_REPOSITORY" \
             --title "macOS 27.2 VMPKG (split volumes)" \
             --notes "Download ALL parts into ONE folder. Open macos-27.2.split.zip with ZArchiver/WinRAR to auto-merge and extract macOS-27.2.vmpkg. Then import into DroidVM." \
-            macos-27.2.split.zip macos-27.2.split.z0*
+            "$V"/macos-27.2.split.zip "$V"/macos-27.2.split.z0*
           echo "=== release assets ==="
-          gh release view macos-27.2-split --json url,assets
+          gh release view macos-27.2-split --repo "$GITHUB_REPOSITORY" --json url,assets
