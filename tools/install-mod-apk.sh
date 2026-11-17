@@ -3,7 +3,7 @@
 APK_URL="https://github.com/QQ127/macOS-DroidVM/releases/download/droidvm-apple-apk/DroidVM-macOS27-AppleCrosvm.apk"
 PKG="cn.classfun.droidvm"
 DEST="/sdcard/Download/DroidVM-macOS27-AppleCrosvm.apk"
-EXPECT="5d9e687e3c3a08eaf533d67cfdaa9cfe2a157ab3daef50fab3f9586a6a42c55b"
+EXPECT="c43d81def3527af75b84ff2eba0443158dd1475761c9536fd436ef9bf826341f"
 
 echo "=== 改版 DroidVM 一键安装 ==="
 echo "[1/5] 检查 root"
