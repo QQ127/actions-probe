@@ -1,4 +1,4 @@
-#!/system/bin/sh
+#!/data/data/com.termux/files/usr/bin/sh
 # 一键安装改版 DroidVM（内置 Apple crosvm + virglrenderer）
 APK_URL="https://github.com/QQ127/macOS-DroidVM/releases/download/droidvm-apple-apk/DroidVM-macOS27-AppleCrosvm.apk"
 PKG="cn.classfun.droidvm"
@@ -11,7 +11,7 @@ su -c 'id' >/dev/null 2>&1 || { echo "无 root，请用 MT管理器 手动安装
 echo "  root OK"
 
 echo "[2/5] 备份旧版 APK"
-OLD=$(su -c 'pm path '"$PKG"' 2>/dev/null' | sed 's/package://' | head -1)
+OLD=$(su -c '/system/bin/pm path '"$PKG"' 2>/dev/null' | sed 's/package://' | head -1)
 if [ -n "$OLD" ]; then
   su -c 'cp '"$OLD"' /sdcard/Download/DroidVM-original-backup.apk' 2>/dev/null && echo "  已备份到 /sdcard/Download/DroidVM-original-backup.apk" || echo "  备份跳过（不影响安装）"
 else
@@ -27,9 +27,9 @@ GOT=$(sha256sum "$DEST" 2>/dev/null | cut -d' ' -f1)
 if [ "$GOT" = "$EXPECT" ]; then echo "  校验通过"; else echo "  ⚠ 校验不符: $GOT（可能下载不完整）"; fi
 
 echo "[5/5] 安装（会先卸载旧版，配置会清空，镜像文件不动）"
-su -c 'pm uninstall '"$PKG"' 2>/dev/null'
-su -c "pm install -r $DEST" 2>&1 | tail -3
-if su -c 'pm path '"$PKG"'' >/dev/null 2>&1; then
+su -c '/system/bin/pm uninstall '"$PKG"' 2>/dev/null'
+su -c "/system/bin/pm install -r $DEST" 2>&1 | tail -3
+if su -c '/system/bin/pm path '"$PKG"'' >/dev/null 2>&1; then
   echo "=== 安装成功！打开 DroidVM 即可 ==="
 else
   echo "=== 安装失败，请用 MT管理器 手动安装 $DEST ==="
