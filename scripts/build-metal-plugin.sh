@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # Build the macOS Metal plugin, out/metal/plugin/NativeAdrenoMetal.bundle: overlay/metal/NativeAdrenoMetalPlugin.mm, UniXNU's native Metal frontend
-# and bridge (scripts/build-metal-bridge-macos.py) and Turnip beside it (scripts/build-turnip-macos.py), then stage it with metal-probe
-# (scripts/build-metal-probe.sh builds that) for a boot: MACOS_DATA_SEED=out/metal/stage/scratch-data.img
-# MACOS_TRUSTCACHE=out/metal/stage/kernel.macho.trustcache, stderr-log=1.
+# and bridge (scripts/build-metal-bridge-macos.py) and Turnip beside it (scripts/build-turnip-macos.py). scripts/product.py takes it from there.
 #   build-metal-plugin.sh [--no-deps]     --no-deps: reuse the built Turnip and bridge
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -10,9 +8,8 @@ if [ "${1:-}" != --no-deps ]; then
   python3 scripts/build-turnip-macos.py
   python3 scripts/build-metal-bridge-macos.py
 fi
-# NativeMetal: local branch macos-hackintosh, Droid-VM/NativeMetal wip/hackintosh 0e7550a (2026-11-08) with a9531ab (two-plane YCbCr
-# surface textures converted once per contents) and its refresh by the surface's seed and luma sum rebased on top
-U=sources/UniXNU/drivers/NativeMetal
+# NATIVE_METAL_SOURCE selects the integrated frontend and the matching bridge sources.
+U=${NATIVE_METAL_SOURCE:-sources/UniXNU/drivers/NativeMetal}
 O=out/metal/plugin
 B=$O/NativeAdrenoMetal.bundle/Contents
 rm -rf $O/NativeAdrenoMetal.bundle
@@ -20,69 +17,11 @@ mkdir -p "$B/MacOS"
 CXX=(/usr/lib/llvm-21/bin/clang++ -target arm64e-apple-macos14.0 -isysroot toolchains/sdks/MacOSX26.1.sdk -fobjc-arc -O2 -std=c++17
      -Wno-deprecated-declarations -c -x objective-c++ -I $U)
 "${CXX[@]}" overlay/metal/NativeAdrenoMetalPlugin.mm -o $O/plugin.o
-# The frontend with the macOS board's changes; NativeMetal wip/hackintosh carries the render server's IOSurface use counts, a heap's texture
-# made on the device when the heap has no room, and held surface imports itself.
+# The frontend as it is: NativeMetal wip/hackintosh (af958ac, 43f78ae) took in what this script used to patch into it (XR10 for
+# WindowServer only, 4:2:0 planes read in place, surfaces counted in use from commit to completion, large YCbCr surfaces refused).
 python3 - $U/NativeBridgeMetalFrontend.mm $O/frontend.mm <<'PY'
 import sys
 s = open(sys.argv[1]).read()
-for old, new in [
-    (' NBHeap *heap=[NBHeap new];heap.handle=handle;',
-     ' NBLOG(@"native-metal: heap %lu bytes type %ld options %lx -> %llu",(unsigned long)d.size,(long)d.type,(unsigned long)d.resourceOptions,'
-     'nmb_heap_size(handle));\n NBHeap *heap=[NBHeap new];heap.handle=handle;'),
-    # The encoding thread (NativeMetal fd9fbe1: the runtime's half of each encoder call on a thread of its own, fed in batches) in
-    # WindowServer as in backboardd, the render server it was made for; /private/var/ngpu/debug/no-encode-thread turns it off.
-    # (By name: NativeMetal b0d6a07 makes the render server a role the host states, native_bridge_metal_set_render_server, which
-    # would also give WindowServer the render server's other policies -- round-robin 54, display hold, ending after a GPU loss.)
-    ('                      (isRenderServer() || access("/private/var/ngpu/debug/encode-thread",F_OK)==0);',
-     '                      (isRenderServer() || !strcmp(getprogname(),"WindowServer") ||\n'
-     '                       access("/private/var/ngpu/debug/encode-thread",F_OK)==0);'),
-    # The runtime converts a two-plane YCbCr texture on the CPU at every encoder that uses it (planes copied to staging, then a
-    # dispatch): WindowServer's 4096x2160 wallpaper frames (YCBCR8_444_2P) took the 4 GiB guest into jetsam. Above 1 Mpx it is
-    # refused here; the server has no other way to draw the wallpaper (refused, the desktop is never repainted where windows moved
-    # off it), so the 8-bit formats are converted once per surface contents before this (the frontend's convertedYCbCrTexture) and
-    # only the others still reach this refusal; the small backdrop samples (512x512) are made.
-    # Where the runtime reads 4:2:0 planes in place (METAL2VULKAN_YCBCR_PLANES_ONLY, set for WindowServer and WallpaperAerialsExtension by the plugin; patches/
-    # metal2vulkan-macos/0001), YCBCR8_420_2P and YCBCR10_420_2P (500, 505) over plane 0 go to it: neither converted on the CPU nor refused;
-    # so do RGB8_420_2P and RGB10_420_2P (540, 543), read as codes in place (patches/metal2vulkan-macos/0002): WallpaperAerialsExtension's
-    # 4480x3088 RGB10_420_2P frames, refused before, left the login and lock screen a flat colour.
-    (' if(id<MTLTexture> converted=convertedYCbCrTexture(self,d,surface,plane))return converted;\n',
-     ' static const bool planesInPlace=getenv("METAL2VULKAN_YCBCR_PLANES_ONLY")!=nullptr;\n'
-     ' const bool inPlace=planesInPlace && plane==0 && (d.pixelFormat==500 || d.pixelFormat==505 || d.pixelFormat==540 || d.pixelFormat==543);\n'
-     ' if(inPlace){static std::atomic<unsigned> made;if(made++<4)NBLOG(@"native-metal: surface texture %lux%lu YCbCr format %lu read in place",'
-     '(unsigned long)d.width,(unsigned long)d.height,(unsigned long)d.pixelFormat);}\n'
-     ' if(id<MTLTexture> converted=inPlace?nil:convertedYCbCrTexture(self,d,surface,plane))return converted;\n'),
-    # Such a texture reads the video frame's own pages when the GPU runs a pass that samples it (no copy), so its surface is counted in
-    # use from the commit of each command buffer that binds it until that command buffer completes: a decoder's pool reuses a surface no
-    # one uses, and wrote the next frame into one a lock-screen pass was still reading (black bands a CTU row high). Counted for the
-    # texture's life instead, every pool surface stayed in use (WindowServer keeps a texture of each), and the decoder, out of
-    # surfaces, showed grey frames but for what moved.
-    ('@property(nonatomic,strong) NSMutableSet *surfaces;',
-     '@property(nonatomic,strong) NSMutableSet *surfaces;\n@property(nonatomic,strong) NSMutableArray *surfacesInUse;'),
-    ('  flushSurfaces(_surfaces);\n  if(gLogTextures)dumpSurfacesOnce(_surfaces,_resourceOwners);\n',
-     '  flushSurfaces(_surfaces);\n'
-     '  if(getenv("METAL2VULKAN_YCBCR_PLANES_ONLY"))for(NBTexture *texture in _surfaces)\n'
-     '   if(texture.surface && (texture.descriptor.format==500 || texture.descriptor.format==505 ||\n'
-     '    texture.descriptor.format==540 || texture.descriptor.format==543)) {\n'
-     '    if(!_surfacesInUse)_surfacesInUse=[NSMutableArray array];\n'
-     '    IOSurfaceIncrementUseCount(texture.surface);[_surfacesInUse addObject:texture];\n'
-     '   }\n'
-     '  if(gLogTextures)dumpSurfacesOnce(_surfaces,_resourceOwners);\n'),
-    (' [_surfaces removeAllObjects];[_writtenSurfaces removeAllObjects];[_resourceOwners removeAllObjects];\n',
-     ' for(NBTexture *texture in _surfacesInUse)IOSurfaceDecrementUseCount(texture.surface);\n _surfacesInUse=nil;\n'
-     ' [_surfaces removeAllObjects];[_writtenSurfaces removeAllObjects];[_resourceOwners removeAllObjects];\n'),
-    (' NmbTextureDescriptor descriptor;if(!buffer || !textureDescriptor(d,&descriptor))return nil;\n const uint64_t base=(uintptr_t)IOSurfaceGetBaseAddress(surface),',
-     ' NmbTextureDescriptor descriptor;if(!buffer || !textureDescriptor(d,&descriptor))return nil;\n'
-     ' if(d.pixelFormat>=500 && d.pixelFormat<600 && (uint64_t)d.width*d.height>1024*1024 &&\n'
-     '    !(getenv("METAL2VULKAN_YCBCR_PLANES_ONLY") && plane==0 && (d.pixelFormat==500 || d.pixelFormat==505 ||\n'
-     '    d.pixelFormat==540 || d.pixelFormat==543))){\n'
-     '  static std::atomic<unsigned> refusals;   // the server asks again at every frame\n'
-     '  if(refusals++<4)NBLOG(@"native-metal: surface texture refused: %lux%lu YCbCr format %lu converts on the CPU",(unsigned long)d.width,'
-     '(unsigned long)d.height,(unsigned long)d.pixelFormat);\n'
-     '  return nil;}\n'
-     ' const uint64_t base=(uintptr_t)IOSurfaceGetBaseAddress(surface),'),
-]:
-    assert s.count(old) == 1, old
-    s = s.replace(old, new)
 # NMB_FRAME_ROWS=1 (diagnostics, research/debug-2026-10-27): WindowServer's telemetry table every 20 s without NATIVE_METAL_TIMING in
 # its launchd job, and each K row (a commit) with its GPU time (GPUEndTime - GPUStartTime) and its encoding (command buffer made to commit).
 import os
@@ -99,9 +38,8 @@ if os.environ.get('NMB_FRAME_ROWS') == '1':
          '  if(r.index==commandBuffer.commitIndex) {\n   r.callbackUs=took;r.gpuUs=gpuSeconds>0?(uint64_t)(gpuSeconds*1e6):0;\n'),
         ('   row("K%u t=%llu.%03llus rp%u dr%u kpx%llu cs%u bl%u ctc=%lluus",',
          '   row("K%u t=%llu.%03llus rp%u dr%u kpx%llu cs%u bl%u ctc=%lluus gpu=%lluus enc=%lluus",'),
-        ('(unsigned long long)(r.work.pixels>>10),r.work.dispatches,r.work.blits,(unsigned long long)r.callbackUs);',
-         '(unsigned long long)(r.work.pixels>>10),r.work.dispatches,r.work.blits,(unsigned long long)r.callbackUs,(unsigned long long)r.gpuUs,'
-         '(unsigned long long)r.ageUs);'),
+        ('(ull)(r.work.pixels>>10),r.work.dispatches,r.work.blits,(ull)r.callbackUs);',
+         '(ull)(r.work.pixels>>10),r.work.dispatches,r.work.blits,(ull)r.callbackUs,(ull)r.gpuUs,(ull)r.ageUs);'),
     ]:
         assert s.count(old) == 1, old
         s = s.replace(old, new)
@@ -134,7 +72,21 @@ open(sys.argv[1], 'wb').write(plistlib.dumps(dict(
     CFBundleVersion='1', CFBundleShortVersionString='1', NSPrincipalClass='NativeAdrenoMetalDevice',
     CFBundleSupportedPlatforms=['MacOSX'], LSMinimumSystemVersion='14.0'), fmt=plistlib.FMT_XML))
 EOF
-# NO_STAGE=1: the bundle only. Staging without STAGE_ARGS=--base/--store makes a new Data seed, which resets the phone's Data.
-[ -n "${NO_STAGE:-}" ] && exit 0
+# The build the Shader Cache app (scripts/build-shader-cache-app.py) compares its last run with: a plugin or Turnip built otherwise
+# shows the system shader cache as needing an update.
+mkdir -p "$B/Resources"
+python3 - "$B" <<'EOF'
+import hashlib, json, sys
+from pathlib import Path
+contents = Path(sys.argv[1])
+digest = hashlib.sha256()
+for name in ('NativeAdrenoMetal', 'libvulkan_freedreno.dylib'):
+    digest.update((contents / 'MacOS' / name).read_bytes())
+(contents / 'Resources/gpu-build.json').write_text(json.dumps({'metal_source_sha256': digest.hexdigest()}) + '\n')
+EOF
+# The bundle only: scripts/product.py makes the trust cache and boot disk from it and puts it into the guest (install-plugin).
+# STAGE=1 (the seed-and-overlay Data model, before the single-container disk): also stage it into a Data seed with metal-probe.
+# Without STAGE_ARGS=--base/--store that makes a new seed, which resets such a VM's Data.
+[ "${STAGE:-}" = 1 ] || exit 0
 [ -x out/metal/probe/metal-probe ] || bash scripts/build-metal-probe.sh
 python3 scripts/stage-gpu-plugin.py --probe out/metal/probe/metal-probe ${STAGE_ARGS:-} $O/NativeAdrenoMetal.bundle

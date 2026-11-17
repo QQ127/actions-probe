@@ -2,7 +2,7 @@
 """Build DroidVMGpu (NativeAdreno published for Metal on the virtio GPU's 3D, vgpu-3d=1) as a native kext of the collection:
 overlay/kext/DroidVMGpu.json.
 
-    build-droidvm-gpu.py
+    build-droidvm-gpu.py [--export-only]
 
 The sources, exported to out/x12377/src-gpu laid out as a UniXNU tree: NativeAdreno 805c7e4 (the commit UniXNU-droidvm bf7fc44 builds
 with) with patches/droidvm-gpu/NativeAdreno (Droid-VM/NativeAdreno's virtio-gpu 3D commits only: the KGSL proxy's edits went
@@ -47,6 +47,9 @@ for name in ('DroidVMGpu.cpp', 'DroidVMGpuWire.h'):
 adreno = SRC / 'drivers/NativeAdreno'
 patch(adreno, sorted((PATCHES / 'NativeAdreno').glob('*.patch')), 1)
 patch(board, sorted((PATCHES / 'UniXNU-droidvm').glob('*.patch')), 2)   # a/package/NAME
+if sys.argv[1:] == ['--export-only']:   # Turnip's ABI header only (CI's turnip job: no kernel objects there)
+    print(f'exported {SRC}')
+    sys.exit(0)
 
 sources = [adreno / 'NativeAdrenoSubmit.cpp', adreno / 'NativeAdrenoMemory.cpp', adreno / 'NativeAdrenoCpu.cpp',
            adreno / 'NativeAdrenoUserClient.cpp', adreno / 'NativeAdrenoPublish.cpp', board / 'DroidVMGpu.cpp',
@@ -60,4 +63,4 @@ includes = [adreno, SRC / 'kits/ArmSmmu4K', SRC / 'kits/AdrenoPM4', board, GRAPH
 print(f'droidvm-gpu: UniXNU-droidvm {REF}, NativeAdreno {PINS["drivers/NativeAdreno"][:7]}, '
       f'{len(list((PATCHES / "NativeAdreno").glob("*.patch")))} + {len(list((PATCHES / "UniXNU-droidvm").glob("*.patch")))} patches')
 subprocess.run(['python3', str(ROOT / 'scripts/build-native-kext.py'), 'DroidVMGpu', *map(str, sources),
-                *[f'-I{path}' for path in includes]], check=True)
+                *[f'-I{path}' for path in includes], '--obj', 'k27-obj'], check=True)   # the k27 tree's flags, as every other kext

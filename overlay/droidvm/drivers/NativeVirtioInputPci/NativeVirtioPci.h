@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 // Modern virtio-pci transport (VirtIO 1.2 4.1) on bus 0 of a generic ECAM host bridge, shared by the UniXNU-droidvm
 // virtio drivers. crosvm (DroidVM) has virtio-pci only; QEMU virt runs with highmem=off so ECAM and BARs stay below 4 GiB.
-// The firmware has assigned the BARs; a transport only enables memory decode and bus mastering. Polling only: no INTx or
-// MSI-X is set up, so drivers suppress used-buffer notifications or ignore them.
+// The firmware has assigned the BARs; the transport enables memory decode and bus mastering.
+// Enumerated PCI clients may map queue MSI-X vectors after the PCI family allocates them.
 #pragma once
 #include <IOKit/IOLib.h>
 #include <IOKit/IOMemoryDescriptor.h>
@@ -53,7 +53,8 @@ enum : unsigned { deviceBlock = 2, deviceGpu = 16, deviceInput = 18 };
 // virtio_pci_common_cfg
 enum : unsigned {
   deviceFeatureSelect = 0x00, deviceFeature = 0x04, driverFeatureSelect = 0x08, driverFeature = 0x0c,
-  deviceStatus = 0x14, configGeneration = 0x15, queueSelect = 0x16, queueSize = 0x18,
+  configMsixVector = 0x10, deviceStatus = 0x14, configGeneration = 0x15, queueSelect = 0x16, queueSize = 0x18,
+  queueMsixVector = 0x1a,
   queueEnable = 0x1c, queueNotifyOff = 0x1e, queueDesc = 0x20, queueDriver = 0x28, queueDevice = 0x30,
 };
 // virtio_pci_cap cfg_type
@@ -109,6 +110,34 @@ public:
   bool isOpen() const { return window[capCommon] != 0; }
   unsigned pciSlot() const { return slot; }
   uint64_t commonPhysical() const { return windowPhysical[capCommon]; }
+
+  // An enumerated IOPCIDevice owns its BAR mappings; use the bridge's assigned resources.
+  template <typename PciDevice> bool open(PciDevice *pci) {
+    if (isOpen()) return false;
+    slot = pci->getDeviceNumber();
+    pci->setMemoryEnable(true);
+    pci->setBusMasterEnable(true);
+    unsigned guard = 0;
+    for (unsigned cap = pci->configRead32(0x34) & 0xfc; cap && guard < 48; ++guard) {
+      uint32_t head = pci->configRead32(cap);
+      unsigned type = (head >> 24) & 0xff, bar = pci->configRead32(cap + 4) & 0xff;
+      if ((head & 0xff) == 0x09 && type >= capCommon && type <= capDevice && bar <= 5 && !maps[type]) {
+        uint32_t offset = pci->configRead32(cap + 8), length = pci->configRead32(cap + 12);
+        maps[type] = pci->mapDeviceMemoryWithRegister(0x10 + 4 * bar, kIOMapAnywhere | kIOMapInhibitCache);
+        if (!maps[type] || !length || static_cast<uint64_t>(offset) + length > maps[type]->getLength()) {
+          close();
+          return false;
+        }
+        window[type] = maps[type]->getVirtualAddress() + offset;
+        windowLength[type] = length;
+        windowPhysical[type] = maps[type]->getPhysicalAddress() + offset;
+        if (type == capNotify) notifyMultiplier = pci->configRead32(cap + 16);
+      }
+      cap = (head >> 8) & 0xfc;
+    }
+    if (!window[capCommon] || !window[capNotify]) { close(); return false; }
+    return true;
+  }
 
   // Open the index-th function of the given virtio device type on bus 0 of the mapped ECAM window.
   bool open(uintptr_t ecam, uint64_t ecamLength, unsigned device, unsigned index = 0) {
@@ -230,6 +259,14 @@ public:
       mmioWrite<uint16_t>(notifyAddress[queue], queue);
     }
   }
+
+  bool setQueueVector(uint16_t queue, uint16_t vector) {
+    write<uint16_t>(capCommon, queueSelect, queue);
+    write<uint16_t>(capCommon, queueMsixVector, vector);
+    return read<uint16_t>(capCommon, queueMsixVector) == vector;
+  }
+
+  void disableConfigInterrupt() { write<uint16_t>(capCommon, configMsixVector, 0xffff); }
 
   // Reading the ISR status acknowledges (and deasserts) a pending INTx.
   void acknowledgeInterrupt() { if (window[capIsr]) (void)read<uint8_t>(capIsr, 0); }

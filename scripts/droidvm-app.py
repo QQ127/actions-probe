@@ -15,6 +15,7 @@
                                                          new FDT, keeping every other setting made in the app; then boot
   droidvm-app.py media                                   only switch the registered VM's virtio-media codecs (MACOS_MEDIA) and dump
                                                          its new FDT, keeping every other setting made in the app; then boot
+  droidvm-app.py usb                                     enable xHCI with MACOS_USB_PCI=1 (0 disables it), keeping other settings
   droidvm-app.py disks                                   use the Data store as the registered VM's single disk
                                                          and dump its new FDT, keeping every other setting
                                                          made in the app; then boot
@@ -61,10 +62,20 @@ def load(path, name):
     return module
 
 
-ios = load(ROOT.parent / 'ios/tools/droidvm-app.py', 'ios_droidvm_app')
+IOS_TOOL = ROOT.parent / 'ios/tools/droidvm-app.py'
+
+
+class NoPhone:
+    """Without the ios workspace (CI): what talks to the phone fails when called; building the boot disk from MACOS_FDT works."""
+    def __getattr__(self, name):
+        def missing(*args, **kwargs):
+            raise SystemExit(f'{IOS_TOOL} (the DroidVM app plumbing) is needed for {name}')
+        return missing
+
+
+ios = load(IOS_TOOL, 'ios_droidvm_app') if IOS_TOOL.exists() else NoPhone()
 # The k27 kernel boots the single-volume layout only (docs/k27-real-disk-layout-plan.md P5): the root is the System volume DroidVMSystem
-# of the Data store's container. Set MACOS_ROOT_UUID to disk.json's System UUID for a new install.
-os.environ.setdefault('MACOS_ROOT_UUID', '4646A7E0-5598-41A2-B158-E1AF6D3CF7FB')
+# of the Data store's container; run-macos-vm.py takes its UUID from artifacts/TAG/disk/disk.json unless MACOS_ROOT_UUID names it.
 run = load(ROOT / 'scripts/run-macos-vm.py', 'run_macos_vm')
 
 FOLDER = run.FOLDER
@@ -104,6 +115,13 @@ REFRESH_HZ = int(os.environ.get('MACOS_REFRESH_HZ') or 120)
 # (en0, DHCP from the Wi-Fi's router). The MAC is the one en0 had with no device behind it, so the Data volume's en0 stays en0.
 # MACOS_NET=0: no device, en0 drops every packet (it still exists for the TimeSync clock). The template changes: register and prepare.
 NET = os.environ.get('MACOS_NET', '1') == '1'
+# MACOS_NET_PCI=1 (with MACOS_PCIE=1): AppleVirtIONetwork on PCI/MSI,
+# using the same bridge and MAC; omit the MMIO transport and its ADT node.
+NET_PCI = os.environ.get('MACOS_NET_PCI') == '1'
+DATA_PCI = os.environ.get('MACOS_DATA_PCI') == '1'
+USB_PCI = os.environ.get('MACOS_USB_PCI') == '1'
+# Converted GPT/APFS disk; the original SHNGDATA store remains available for rollback.
+DATA_PCI_IMAGE = FOLDER + '/data-pcie.img'
 NET_MAC = '02:44:56:4d:00:01'
 NET_BRIDGE = 'br-wifi'
 # MACOS_MEDIA=1: VideoToolbox's paravirtualized codecs (DroidVMVideo) on the phone's MediaCodec: crosvm's virtio-media decoder and
@@ -127,6 +145,9 @@ REQUIRED_ARGS = ['mac-amfi-launch-permissive=1', 'malloc-ranges-off=1', 'arm64_m
 # The board's -no_slto_panic is gone in xnu-12377: waitq and port locks spin under LockTimeOut (0.25 s, twice that for a waitq), and a
 # vCPU the busy host did not run for that long while holding one panicked the guest at launchd's spawn storms; 40 times is 10 s
 REQUIRED_ARGS.append('ml-timeout-lock-scale=40')
+# The debug cross-call default is 240,000 ticks (10 ms at our 24 MHz timebase).
+# Allow one second for host-scheduled vCPUs to acknowledge stackshot IPIs.
+REQUIRED_ARGS.append('ml-timeout-debug-ack-scale=100')
 # CoreAudio (and Swift's clocks) take the host clock as 24 MHz whatever mach_timebase_info says; the counter here runs at 19.2 MHz, so
 # without the kernel scaling it (patch 0042) the HAL writes every 80 ms instead of 64 ms and the sound stutters and falls behind the picture
 REQUIRED_ARGS.append('droidvm-timebase-hz=24000000')
@@ -157,8 +178,9 @@ def template(persistent):
     vm.update({'cpu_count': CPUS, 'cpu_affinity': CPU_AFFINITY, 'disks': [],
                'extra_options': ['--block', BOOT + ',lock=false', '--dump-device-tree-blob', DTB,
                                  *disk_options(),
-                                 *(['--virtio-mmio-net'] if NET else []), *(['--virtio-mmio-gpu'] if VIRTIO_GPU else []),
+                                 *(['--virtio-mmio-net'] if NET and not NET_PCI else []), *(['--virtio-mmio-gpu'] if VIRTIO_GPU else []),
                                  *snd_options(), *media_options()]})
+    configure_usb(vm)
     if NET:
         vm['networks'] = [{'network_id': network_id(), 'mac_address': NET_MAC}]
     if VIRTIO_GPU:
@@ -175,6 +197,8 @@ def template(persistent):
 
 def disk_options():
     """The single APFS container: System/Data volume group and auxiliary volumes."""
+    if DATA_PCI:
+        return ['--block', DATA_PCI_IMAGE + ',lock=false']
     return ['--virtio-mmio-block', run.STORE + ',lock=false']
 
 
@@ -242,12 +266,16 @@ def push_images(args):
         fix_owner(BOOT)
 
 
-def boot_disk(args):
-    """Build the boot disk from the FDT the daemon's crosvm dumped for this very VM and push it."""
+def build_boot(args, local=None):
+    """Build the boot disk, from nothing, from the FDT the daemon's crosvm dumped for this very VM: (image, kernel arguments).
+    local: the directory it is built in (scripts/product.py's; removed first)."""
     OUT.mkdir(parents=True, exist_ok=True)
     fdt = OUT / 'generated.dtb'
+    # MACOS_FDT: the FDT of a file (CI: configs/k27-generated.dtb, the app's VM as configured) instead of the phone's latest dump
+    if os.environ.get('MACOS_FDT'):
+        subprocess.run(['cp', os.environ['MACOS_FDT'], str(fdt)], check=True)
     # The VM stopped just before (xnu12377-smoke.sh) may still be going down while the daemon rewrites the FDT: the pull fails then
-    for attempt in range(10):
+    for attempt in range(0 if os.environ.get('MACOS_FDT') else 10):
         try:
             adb('pull', DTB, str(fdt), timeout=60)
             break
@@ -259,18 +287,23 @@ def boot_disk(args):
     # Below the shim's RAM base (0x600000 of firmware window), the framebuffer and the pools at the top of RAM (0xA00000 before:
     # the window and a 1280x800 framebuffer's 4 MiB)
     run.make_adt(fdt, hex(MEM_MB * 1024 * 1024 - 0x600000 - run.fdt_framebuffer_bytes(fdt) - run.fdt_pool_bytes(fdt)), '47554e5941480001', adt, cpu_regs=None,
-                 virtio_gpu=VIRTIO_GPU, net=NET, snd=SND, media=len(MEDIA))   # every vCPU the app gives the VM
+                 virtio_gpu=VIRTIO_GPU, net=NET and not NET_PCI, snd=SND, media=len(MEDIA))   # every vCPU the app gives the VM
     artifacts = ROOT / f'artifacts/{TAG}'
     line = run.kernel_args(REQUIRED_ARGS + ([a for a in GPU_ARGS if a.split('=')[0] not in os.environ.get('MACOS_DROP_ARGS', '').split(',')] if GPU else []) +
                            ['exec-env=' + ';'.join(EXEC_ENV + (GPU_EXEC_ENV if GPU else []))] + args.kernel_arg)
-    local = OUT / 'boot'
+    local = local or OUT / 'boot'
     if local.exists():
         subprocess.run(['rm', '-rf', str(local)], check=True)
     local.mkdir()
     # MACOS_TRUSTCACHE / MACOS_DATA_SEED: replacements staged by scripts/stage-gpu-plugin.py (the Metal plugin and its CDHashes)
     trust = Path(os.environ.get('MACOS_TRUSTCACHE') or artifacts / 'boot/kernel.macho.trustcache')
     seed = Path(os.environ.get('MACOS_DATA_SEED') or artifacts / 'disk/scratch-data.img')
-    disk = run.build_boot_disk(local, trust, seed, adt, line)
+    return run.build_boot_disk(local, trust, seed, adt, line), line
+
+
+def boot_disk(args):
+    """Build the boot disk and push it."""
+    disk, line = build_boot(args)
     adb('push', str(disk), BOOT, timeout=900)
     fix_owner(BOOT)
     print('boot disk pushed:', BOOT, '\nkernel args:', line)
@@ -299,15 +332,15 @@ def prepare(args):
 
 
 def net(args):
-    """The registered VM with (MACOS_NET=1) or without the virtio-mmio network: --virtio-mmio-net before --virtio-mmio-gpu (crosvm's
-    order) and the br-wifi network at NET_MAC. A new MMIO window moves the virtio-gpu one, so the FDT is dumped again."""
+    """Select MMIO or PCI (MACOS_NET_PCI=1) for the br-wifi network at NET_MAC.
+    Changing the MMIO windows moves later devices, so dump the FDT again."""
     ipc = ios.Ipc()
     row = ios.find_vm(ipc)
     if row and row.get('state') != 'STOPPED':
         raise SystemExit(f'stop the running VM first ({row.get("state")})')
     vm = next(v for v in json.loads(sh(f'cat {ios.APP}/files/vms.json'))['vms'] if v['id'] == VM_ID)
     options = [o for o in vm['extra_options'] if o != '--virtio-mmio-net']
-    if NET:
+    if NET and not NET_PCI:
         options.insert(options.index('--virtio-mmio-gpu') if '--virtio-mmio-gpu' in options else len(options), '--virtio-mmio-net')
     vm.update({'extra_options': options, 'networks': [{'network_id': network_id(), 'mac_address': NET_MAC}] if NET else []})
     status = ipc.call('vm_config_status')
@@ -316,6 +349,61 @@ def net(args):
     if not reply.get('success'):
         raise SystemExit(1)
     dump_fdt()
+
+
+# MACOS_PCIE=1: Apple's PCIe bridge on crosvm's PCI host with MSI (docs/k27-vmapple-pcie-msi-plan.md): crosvm's --mbi-spis gives the
+# virtio-pci devices MSI-X through GIC MBI SPIs, whose frame the ADT's /arm-io/gic-mbi carries (scripts/run-macos-vm.py make_adt).
+PCIE = os.environ.get('MACOS_PCIE') == '1'
+MBI_SPIS = os.environ.get('MACOS_MBI_SPIS') or '64'
+
+
+def pcie(args):
+    """The registered VM with (MACOS_PCIE=1) or without --mbi-spis, every other setting kept; the FDT gains or loses the MBI
+    frame, so it is dumped again."""
+    ipc = ios.Ipc()
+    row = ios.find_vm(ipc)
+    if row and row.get('state') != 'STOPPED':
+        raise SystemExit(f'stop the running VM first ({row.get("state")})')
+    vm = next(v for v in json.loads(sh(f'cat {ios.APP}/files/vms.json'))['vms'] if v['id'] == VM_ID)
+    options = vm['extra_options']
+    while '--mbi-spis' in options:
+        i = options.index('--mbi-spis')
+        del options[i:i + 2]
+    if PCIE:
+        options += ['--mbi-spis', MBI_SPIS]
+    status = ipc.call('vm_config_status')
+    reply = ipc.call('vm_config_apply', revision=status['revision'], operations=[{'op': 'replace', 'config': vm}])
+    print('replace', reply.get('success'), reply.get('message', ''), reply.get('error', ''), json.dumps(options))
+    if not reply.get('success'):
+        raise SystemExit(1)
+    dump_fdt()
+
+
+def configure_usb(vm):
+    controllers = [p for p in vm.get('peripherals', []) if p.get('type') == 'xhci_usb']
+    if USB_PCI and not controllers:
+        index = int(vm.get('xhci_next', 0))
+        vm.setdefault('peripherals', []).append(
+            {'type': 'xhci_usb', 'id': f'xhci-{index}', 'usb2_ports': 8, 'usb3_ports': 8})
+        vm['xhci_next'] = index + 1
+    elif not USB_PCI:
+        vm['peripherals'] = [p for p in vm.get('peripherals', []) if p.get('type') != 'xhci_usb']
+    vm.pop('usb', None)  # The daemon derives USB enablement from peripherals.
+
+
+def usb(args):
+    """Enable or disable xHCI with MACOS_USB_PCI; PCI/MMIO bridge windows do not change."""
+    ipc = ios.Ipc()
+    row = ios.find_vm(ipc)
+    if row and row.get('state') != 'STOPPED':
+        raise SystemExit(f'stop the running VM first ({row.get("state")})')
+    vm = next(v for v in json.loads(sh(f'cat {ios.APP}/files/vms.json'))['vms'] if v['id'] == VM_ID)
+    configure_usb(vm)
+    status = ipc.call('vm_config_status')
+    reply = ipc.call('vm_config_apply', revision=status['revision'], operations=[{'op': 'replace', 'config': vm}])
+    print('replace', reply.get('success'), reply.get('message', ''), reply.get('error', ''))
+    if not reply.get('success'):
+        raise SystemExit(1)
 
 
 def disks(args):
@@ -327,9 +415,9 @@ def disks(args):
         raise SystemExit(f'stop the running VM first ({row.get("state")})')
     vm = next(v for v in json.loads(sh(f'cat {ios.APP}/files/vms.json'))['vms'] if v['id'] == VM_ID)
     options = vm['extra_options']
-    first = options.index('--virtio-mmio-block')
-    rest = [o for i, o in enumerate(options[first:]) if o != '--virtio-mmio-block' and (i == 0 or options[first + i - 1] != '--virtio-mmio-block')]
-    vm['extra_options'] = options[:first] + disk_options() + rest
+    first = next(i for i, o in enumerate(options[:-1])
+                 if o in ('--block', '--virtio-mmio-block') and options[i + 1].split(',')[0] in (run.STORE, DATA_PCI_IMAGE))
+    vm['extra_options'] = options[:first] + disk_options() + options[first + 2:]
     status = ipc.call('vm_config_status')
     reply = ipc.call('vm_config_apply', revision=status['revision'], operations=[{'op': 'replace', 'config': vm}])
     print('replace', reply.get('success'), reply.get('message', ''), reply.get('error', ''))
@@ -471,7 +559,7 @@ def main():
         sub.add_parser(name).add_argument('--kernel-arg', action='append', default=[], help='extra kernel argument NAME[=VALUE]')
     sub.add_parser('install').add_argument('dir')
     sub.add_parser('clone').add_argument('boot_img')
-    for name in ('push', 'register', 'disks', 'net', 'snd', 'media', 'store-patch', 'start', 'stop', 'status'):
+    for name in ('push', 'register', 'disks', 'net', 'pcie', 'usb', 'snd', 'media', 'store-patch', 'start', 'stop', 'status'):
         sub.add_parser(name)
     args = parser.parse_args()
     if args.cmd in ('status', 'stop'):
@@ -486,6 +574,10 @@ def main():
         disks(args)
     elif args.cmd == 'net':
         net(args)
+    elif args.cmd == 'pcie':
+        pcie(args)
+    elif args.cmd == 'usb':
+        usb(args)
     elif args.cmd == 'snd':
         snd(args)
     elif args.cmd == 'media':

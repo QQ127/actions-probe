@@ -5,11 +5,11 @@ arm64e on Linux: the ios branch of UniXNU's scripts/build-turnip-darwin.py with 
     build-turnip-macos.py [--configure-only] [--builtin-pack PACK]
 
 Source: sources/UniXNU-turnip/.cache/mesa-work at the pin of that tree's scripts/data/adreno-compiler-inputs.json with its recorded
-patches applied. sources/UniXNU-turnip is a worktree of sources/UniXNU at Droid-VM/UniXNU wip/droidvm (a4c901d, 2026-11-08: Droid-VM/mesa
-cecc0e9 and 30 patches, the virtio GPU backend and its queue priority, deadline queue, BO cache budgets and lazy BOs, upstream's A8XX
-fixes and the freed-BO slot race fix among them), apart from
+patches applied. sources/UniXNU-turnip is a worktree of sources/UniXNU at Droid-VM/UniXNU wip/droidvm (0f7b62a, 2026-11-16: Droid-VM/mesa
+cecc0e9 and 33 patches, the virtio GPU backend and its queue priority, deadline queue, BO cache budgets and lazy BOs, upstream's A8XX
+fixes, the freed-BO slot race fix and the Darwin client's kernel submissions split only where a command buffer begins among them), apart from
 the board's own UniXNU checkout (whose NativeMetal and other pins stay):
-    git -C sources/UniXNU worktree add --detach ../UniXNU-turnip a4c901d
+    git -C sources/UniXNU worktree add --detach ../UniXNU-turnip 0f7b62a
     git -C sources/UniXNU/.cache/mesa-work fetch --depth 1 https://github.com/Droid-VM/mesa cecc0e96d7193c72356a31abb0cc589e4fc0415e
     git -C sources/UniXNU/.cache/mesa-work worktree add --detach $PWD/sources/UniXNU-turnip/.cache/mesa-work cecc0e96d7193c72356a31abb0cc589e4fc0415e
     then git apply each of the pins' "patches" there, in order.
@@ -59,7 +59,8 @@ link_flags = flags + ['--ld-path=' + str(linker)]
 cross = OUT.parent / 'mesa-tu-macos.cross'
 cross.write_text(
     '[binaries]\nc = %r\ncpp = %r\nobjc = %r\nar = %r\nstrip = %r\npkg-config = \'/usr/bin/false\'\n'
-    % (str(LLVM / 'clang'), str(LLVM / 'clang++'), str(LLVM / 'clang'), str(LLVM / 'llvm-ar'), str(STRIP)) +
+    % (*[[os.environ['MACOS_CCACHE'], str(LLVM / name)] if os.environ.get('MACOS_CCACHE') else str(LLVM / name)   # ccache (CI)
+         for name in ('clang', 'clang++', 'clang')], str(LLVM / 'llvm-ar'), str(STRIP)) +
     "[host_machine]\nsystem = 'darwin'\ncpu_family = 'aarch64'\ncpu = 'arm64'\nendian = 'little'\n"
     "[properties]\nneeds_exe_wrapper = true\n[built-in options]\n" +
     ''.join('%s = %r\n' % (k, flags) for k in ('c_args', 'cpp_args', 'objc_args')) +
@@ -76,9 +77,13 @@ options = ['-Dgallium-drivers=', '-Dvulkan-drivers=freedreno', '-Dfreedreno-kmds
 # compiler and the options, the pack itself left out (it would make the identity circular). A pack from any other build is refused.
 LOCAL_PATCHES = sorted((ROOT / 'patches/mesa-macos').glob('*.patch'))
 profile = dict(mesa_revision=pins['mesa']['commit'], target='macos-arm64e',
-               source_diff_sha256=hashlib.sha256(subprocess.check_output(['git', '-C', str(SOURCE), 'diff', 'HEAD', '--binary'])).hexdigest(),
+               # --full-index: abbreviated blob names grow with the object count (a shallow clone's are shorter); paths of the workspace
+               # as $ROOT: the identity is the same wherever the workspace is (scripts/setup-env.py, CI)
+               source_diff_sha256=hashlib.sha256(subprocess.check_output(['git', '-C', str(SOURCE), 'diff', 'HEAD', '--binary',
+                                                                          '--full-index'])).hexdigest(),
                local_patches=[hashlib.sha256(patch.read_bytes()).hexdigest() for patch in LOCAL_PATCHES],
-               compiler=subprocess.check_output([str(LLVM / 'clang'), '--version'], text=True), options=options)
+               compiler=subprocess.check_output([str(LLVM / 'clang'), '--version'], text=True),
+               options=[option.replace(str(ROOT), '$ROOT') for option in options])
 source_id = hashlib.sha256(json.dumps(profile, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 pack_header = ''
 if args.builtin_pack:
@@ -99,6 +104,9 @@ env.update(CC=str(LLVM / 'clang'), CXX=str(LLVM / 'clang++'), CFLAGS='', CXXFLAG
 # the compiler driver's temporary objects must be where the Darling container sees them (it mounts the workspace only)
 (OUT.parent / 'tmp').mkdir(exist_ok=True)
 env['TMPDIR'] = str(OUT.parent / 'tmp')
+# Mesa's generators (isaspec's encode.py among them) walk Python sets: with a random hash seed each build orders the generated code
+# differently and the library (and its CDHash in the boot disk's trust cache) changes from build to build.
+env['PYTHONHASHSEED'] = '0'
 log = OUT.parent / 'mesa-tu-configure.log'
 if (OUT / 'build.ninja').exists():
     command = ['meson', 'configure', str(OUT), *options]

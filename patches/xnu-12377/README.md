@@ -18,3 +18,27 @@ CONFIG_FIRMLINKS remains enabled for APFS's native firmlinks.
 Validation (2026-11-11): all 47 patches replayed with `git am` from ac9718f; the resulting tree is exactly the previously verified
 k27 tree `c97cc109b2b49890091f3fb035777204c2fd1e4b`. No kernel behavior changed. Rebuild/replay records are in
 `out/layout-cleanup-2026-11-11/`. This rewrites the local k27 patch branch, not the repository's published history.
+
+Patch 0048 (`1168d2b`) adds mixed signed/unsigned Block descriptor support for macOS kexts.
+The port compiler emits unsigned descriptors while AppleUserHIDDrivers passes signed ones;
+authenticate them on access and re-sign them when a Block moves. Incremental kernel and KC builds passed.
+Directed on-device validation (2026-11-11): DriverKit mouse and two trackpad services attached,
+kernel_debugger_entry_count remained zero, and native PCIe block reads returned the expected bytes
+with SPI 64 increasing once per read. The 47-patch replay record above predates this addition.
+
+`IOServicePM-virtual-thunk-callbacks.patch` (`e59b8c5`) follows 0048. With upstream
+Clang's arm64e member-pointer thunks, comparing virtual callback addresses cannot
+distinguish IOService defaults from overrides. Preserve power informees on that
+compiler configuration. Directed USB validation created all 16 xHCI ports; with
+ArmDTPlatform's bus power hierarchy fix, the physical Logitech mouse enumerated.
+
+`vmm-hidden-processes.patch` (`f73fe08`) follows `IOService-owner-cache-media-visibility.patch`. `kern.hv_vmm_present`
+reads 0 for the processes named by boot-arg `vmm-hidden=NAME[,NAME...]` (default `Weather`; empty for none), 1 for all
+others. VFX makes no argument encoder under a VMM, so Weather drew no clouds. On-device (2026-11-15): sysctl reads 1, the
+same binary named Weather reads 0, and Weather opened normally shows moving clouds.
+
+`gpu-bundles-sandbox-map.patch` (`ad47716`) follows `vmm-hidden-processes.patch`. An executable map of a file under
+`/Library/GPUBundles` skips the Sandbox policy's `file_check_mmap` (AMFI still checks it against the trust cache). The
+WebKit GPU process's sandbox reads that directory but maps code only from `/System/Library/Extensions`, so it had no Metal
+device and its offscreen drawing (opacity, CSS filters, masks) came out blank: Bilibili's player icons. On-device
+(2026-11-15): the GPU process maps NativeAdrenoMetal and every row of an opacity/filter/mask test page draws.

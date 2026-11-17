@@ -1,0 +1,77 @@
+name: host
+description: >-
+  The host side of a job of image.yml, from configs/env.lock.json: Python with meson and its modules, and (packages) LLVM from
+  apt.llvm.org, the apt packages and the running kernel's headers, and (rust) the dated nightly. Exports MACOS_RUST_TOOLCHAIN,
+  MACOS_FDT, INPUTS_KEY, INSTALL_KEY, KDK_KEY and TOOLCHAIN_KEY (release and cache keys). The repository is checked out at ws.
+inputs:
+  packages:
+    description: LLVM and the apt packages
+    default: 'true'
+  rust:
+    description: the lock's rust nightly
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
+
+    - shell: bash
+      working-directory: ws
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        RUST: ${{ inputs.rust }}
+      run: |
+        # Ubuntu 24.04 lets AppArmor refuse unprivileged user namespaces (unshare -r: mkapfs in apfs-add-volumes.py)
+        sudo sysctl -qw kernel.apparmor_restrict_unprivileged_userns=0 || true
+        lock() { python3 -c "import json,sys; d=json.load(open('configs/env.lock.json')); print(eval(sys.argv[1]))" "$1"; }
+        if [ "$PACKAGES" = true ]; then
+          wget -qO "$RUNNER_TEMP/llvm.sh" https://apt.llvm.org/llvm.sh
+          sudo bash "$RUNNER_TEMP/llvm.sh" "$(lock "d['host']['llvm']['version']")" >/dev/null
+          # docker.io: the runner has Docker already
+          sudo apt-get update -q
+          # shellcheck disable=SC2046
+          sudo apt-get install -y -q $(lock "' '.join(p for p in d['host']['apt'] if p != 'docker.io')") "linux-headers-$(uname -r)" >/dev/null
+          # unversioned clang, llvm-ar, llvm-nm, ... as on a development machine: LLVM 21's
+          echo "/usr/lib/llvm-$(lock "d['host']['llvm']['version']")/bin" >> "$GITHUB_PATH"
+          clang-21 --version | head -1
+        fi
+        # shellcheck disable=SC2046
+        python3 -m pip install -q $(lock "' '.join(d['host']['python']['pip'])")
+        if [ "$RUST" = true ]; then
+          rust=$(lock "d['host']['rust']['toolchain']")
+          rustup toolchain install "$rust" --profile minimal --component "$(lock "','.join(d['host']['rust']['components'])")"
+          echo "MACOS_RUST_TOOLCHAIN=$rust" >> "$GITHUB_ENV"
+        fi
+        {
+          echo "MACOS_FDT=$PWD/configs/k27-generated.dtb"
+          # INPUTS_KEY: the IPSW inputs' release (the product's "inputs", the two IPSW profiles); INSTALL_KEY: the new install's
+          # (those, the scripts that make it, DarwinBoot's packed_ramdisk, the APFS tools); KDK_KEY: out/x12377/kdk's cache
+          python3 -c "
+        import hashlib, json
+        c = json.load(open('configs/product-k27.json'))
+        lock = json.load(open('configs/env.lock.json'))
+        h = hashlib.sha256(json.dumps(c['inputs'], sort_keys=True).encode())
+        for s in c['inputs']['ipsws']:
+            h.update(open(s['profile'], 'rb').read())
+        inputs = h.hexdigest()[:16]
+        h = hashlib.sha256(inputs.encode())
+        for f in ('scripts/make-macos-disk.py', 'scripts/apfs-add-volumes.py', 'scripts/data_store.py'):
+            h.update(open(f, 'rb').read())
+        h.update(json.dumps([lock['git'][n]['commit'] for n in ('DarwinBoot', 'linux-apfs-rw', 'apfsprogs')]).encode())
+        kdk = hashlib.sha256(json.dumps([lock['downloads'][n]['sha256'] for n in ('kdk', 'kdk-headers.py')]).encode())
+        # toolchains/: the lock's parts and the setup-env.py functions that make it, compat/xnu-linux, apple-ld.py
+        import importlib.util, inspect, pathlib
+        spec = importlib.util.spec_from_file_location('setup_env', 'scripts/setup-env.py')
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+        t = hashlib.sha256(json.dumps([lock['toolchain'], lock['host'], lock['downloads']['macosx-sdk'], lock['git']['ios-sdks']],
+                                      sort_keys=True).encode())
+        for function in (setup.toolchain, setup.sdks, setup.download, setup.git_pinned):
+            t.update(inspect.getsource(function).encode())
+        for f in sorted(p for p in pathlib.Path('compat/xnu-linux').rglob('*') if p.is_file()) + [pathlib.Path('scripts/apple-ld.py')]:
+            t.update(str(f).encode() + f.read_bytes())
+        print(f'INPUTS_KEY={inputs}\nINSTALL_KEY={h.hexdigest()[:16]}\nKDK_KEY={kdk.hexdigest()[:16]}\nTOOLCHAIN_KEY={t.hexdigest()[:16]}')"
+        } >> "$GITHUB_ENV"
+        meson --version

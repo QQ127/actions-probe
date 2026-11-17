@@ -35,11 +35,18 @@ if INSTANCE:
     FOLDER += '-' + INSTANCE
 OWNER = 'u0_a258:media_rw'                          # the owner of the DroidVM folder; the daemon opens leased disks as the app
 STORE = FOLDER + '/data-store.img'
-# The System volume of the Data store's APFS volume group; empty no longer selects a legacy layout.
-ROOT_UUID = os.environ.get('MACOS_ROOT_UUID', '4646A7E0-5598-41A2-B158-E1AF6D3CF7FB').upper()
+# The System volume of the Data store's APFS volume group: by default the one of the new install the phone runs, made by
+# make-macos-disk.py into artifacts/TAG/disk (disk.json); empty no longer selects a legacy layout.
+DISK_LAYOUT = ROOT / f'artifacts/{TAG}/disk/disk.json'
+ROOT_UUID = os.environ['MACOS_ROOT_UUID'] if 'MACOS_ROOT_UUID' in os.environ else \
+    (json.loads(DISK_LAYOUT.read_text())['system']['uuid'] if DISK_LAYOUT.exists() else '')
+ROOT_UUID = ROOT_UUID.upper()
 if not ROOT_UUID:
     raise SystemExit('MACOS_ROOT_UUID must name the System volume (disk.json); the legacy union layout was removed')
 DATA_STORE_MMIO = 0x0a000000
+# /arm-io/pcie's device-interrupt-parent under MACOS_PCIE=1: DroidVMGicMsi takes it as its AAPL,phandle once it is registered as the
+# bridge's interrupt controller ('MBIF'; the ADT's nodes have no AAPL,phandle of their own). overlay/kext/DroidVMGicMsi.cpp has it too.
+GIC_MBI_PHANDLE = 0x4d424946
 OS_UUID = ROOT_UUID
 BOARD = ROOT / 'sources/UniXNU-droidvm/board.toml'
 ADT_TOOL = ROOT / 'sources/UniXNU-droidvm/scripts/make-droidvm-adt.py'
@@ -116,7 +123,8 @@ def last_virtio_mmio(tool, fdt, skip=0):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     base = sorted(base for base, _ in module.describe(module.parse_fdt(Path(fdt).read_bytes()))['virtio_mmio'])[-1 - skip]
-    if base <= DATA_STORE_MMIO:
+    # Without the MMIO Data store, the first window belongs to GPU/net/audio.
+    if base < DATA_STORE_MMIO or (base == DATA_STORE_MMIO and os.environ.get('MACOS_DATA_PCI') != '1'):
         raise SystemExit(f'{fdt} has no virtio-mmio window after the data store: prepare again with --droidvm-gpu in the VM')
     return base
 
@@ -179,9 +187,36 @@ def make_adt(fdt, dram_size, unique_chip_id, output, cpu_regs='0', gpu=False, vi
         assert text.count('    vm = describe(parse_fdt(args.fdt.read_bytes()))') == 1
         text = text.replace('    vm = describe(parse_fdt(args.fdt.read_bytes()))',
                             '    fdt_nodes = parse_fdt(args.fdt.read_bytes())\n    vm = describe(fdt_nodes)')
-        text = text.replace(marker, "              *[node('pcie', [('compatible', b'pci-host-ecam-generic\\0'), ('reg', struct.pack('<QQ', address - ARMIO_BASE, size)),"
-                                    " ('dma-coherent', b'')]) for address, size in [reg_pairs(props['reg'])[0] for props in fdt_nodes.values()"
-                                    " if b'pci-host-ecam-generic' in props.get('compatible', b'')]],\n" + marker)
+        # crosvm's PL030 RTC supplies wall time before userspace services create absolute deadlines.
+        text = text.replace(marker, "              *[node('rtc', [('compatible', b'arm,pl030\\0'),"
+                                    " ('reg', struct.pack('<QQ', address - ARMIO_BASE, size))])"
+                                    " for props in fdt_nodes.values() if props.get('arm,primecell-periphid') == struct.pack('>I', 0x41030)"
+                                    " for address, size in reg_pairs(props['reg'])],\n" + marker)
+        if os.environ.get('MACOS_PCIE') == '1':
+            # MACOS_PCIE=1: Apple's own bridge, AppleVirtualPlatformPCIE (docs/k27-vmapple-pcie-msi-plan.md), takes /arm-io/pcie
+            # (its personality on IOPlatformDevice: overlay/kext/AppleVirtualPlatformPCIE.json). It reads #address-cells 3 and
+            # #size-cells 2, and each 28-byte ranges entry as a flags word and the little-endian PCI address, CPU address and size
+            # (it adds the PCI address, which crosvm makes the CPU's). The parent address is relative to arm-io, whose ranges
+            # add ARMIO_BASE during IODTResolveAddressing; its interrupt parent is the service whose AAPL,phandle is
+            # device-interrupt-parent, DroidVMGicMsi on /arm-io/gic-mbi (crosvm's MBI frame, from the FDT's mbi-alias), and
+            # msi-frame-index that service's memory with the frame. Without the FDT's MBI frame (no --mbi-spis) it has no MSI.
+            text = text.replace(marker, "              *[node('pcie', [('compatible', b'pcie,vmapple1\\0'), ('device_type', b'pci\\0'),"
+                                        " ('reg', struct.pack('<QQ', address - ARMIO_BASE, size)),"
+                                        " ('#address-cells', struct.pack('<I', 3)), ('#size-cells', struct.pack('<I', 2)),"
+                                        " ('ranges', b''.join(struct.pack('<IQQQ', c[i], c[i + 1] << 32 | c[i + 2], (c[i + 3] << 32 | c[i + 4]) - ARMIO_BASE,"
+                                        " c[i + 5] << 32 | c[i + 6]) for c in [cells(props['ranges'])] for i in range(0, len(c), 7))),"
+                                        f" ('device-interrupt-parent', struct.pack('<I', {GIC_MBI_PHANDLE:#x})),"
+                                        " *([('msi-frame-index', struct.pack('<I', 0))] if any('mbi-alias' in p for p in fdt_nodes.values()) else []),"
+                                        " ('dma-coherent', b'')]) for props in fdt_nodes.values()"
+                                        " if b'pci-host-ecam-generic' in props.get('compatible', b'') for address, size in [reg_pairs(props['reg'])[0]]],\n"
+                                        "              *[node('gic-mbi', [('compatible', b'droidvm,gic-mbi\\0'),"
+                                        " ('reg', struct.pack('<QQ', struct.unpack('>Q', props['mbi-alias'])[0] - ARMIO_BASE, 0x1000)),"
+                                        " ('mbi-ranges', struct.pack('<II', *cells(props['mbi-ranges'])))])"
+                                        " for props in fdt_nodes.values() if 'mbi-alias' in props],\n" + marker)
+        else:
+            text = text.replace(marker, "              *[node('pcie', [('compatible', b'pci-host-ecam-generic\\0'), ('reg', struct.pack('<QQ', address - ARMIO_BASE, size)),"
+                                        " ('dma-coherent', b'')]) for address, size in [reg_pairs(props['reg'])[0] for props in fdt_nodes.values()"
+                                        " if b'pci-host-ecam-generic' in props.get('compatible', b'')]],\n" + marker)
         # The Data volume persists in the data store (NativeRamBlock with DroidVMDataStore), so /chosen does not say ephemeral-storage:
         # with hw.ephemeral_storage set, usermanagerd skips its persona manager (os_variant_uses_ephemeral_storage) and then fails the
         # assertion _gPersonaManager != nil on loginwindow's persona login, and loginwindow never launches Dock, Finder and SystemUIServer.
@@ -193,7 +228,8 @@ def make_adt(fdt, dram_size, unique_chip_id, output, cpu_regs='0', gpu=False, vi
         if os.environ.get('MACOS_BOOT_MANIFEST_HASH') == '1':
             text = text.replace(marker, "('boot-manifest-hash', bytes(48)), " + marker)
         text = text.replace(marker, "*([('ephemeral-storage', struct.pack('<I', 1))] if (args.data_ramdisk or args.packed_data_ramdisk)"
-                                    " and args.data_store_mmio is None else []),")
+                                    " and args.data_store_mmio is None else []),"
+                            if os.environ.get('MACOS_DATA_PCI') != '1' else '')
         # MACOS_VMM_PRESENT=0: /defaults without vmm-present, so kern.hv_vmm_present is 0. MobileGestalt answers IsVirtualDevice from it,
         # and Core Animation on a virtual device keeps a half-float 'RGhA' framebuffer (IOMFBDisplay::framebuffer_pixel_format returns
         # before its 'BGRA' choice) and takes the VM's display paths (CursorPlane).
@@ -201,6 +237,48 @@ def make_adt(fdt, dram_size, unique_chip_id, output, cpu_regs='0', gpu=False, vi
             marker = "('vmm-present', struct.pack('<I', 1)),"
             assert text.count(marker) == 1
             text = text.replace(marker, '')
+        # MACOS_IDENTITY (default vm): the model of Apple's own macOS VM, whose kernel collection (vma2) and kexts this guest runs:
+        # /, /product and /buttons as artifacts/TAG/DeviceTree.vma2macosap gives them (VirtualMac2,1, board VMA2MACOSAP, the "mac"
+        # idiom), not the iPad7,1 (J120) of the upstream iPadOS board's --ipad-identity, under which macOS reported an iPad model and
+        # About This Mac an unknown one. Left out of /product: the host's guest agent port and product-id. The root's compatible
+        # stays the board's, so Apple's virtual platform kexts (AppleVirtualPlatformARM) match nothing; /chosen (chip ID, the
+        # production and security modes --ipad-identity sets) is unchanged. MACOS_IDENTITY=ipad keeps the iPad model.
+        if os.environ.get('MACOS_IDENTITY', 'vm') == 'vm':
+            for old, new in (
+                    ("('model', b'iPad7,1\\0' if args.ipad_identity else b'droidvm-first-boot\\0'),",
+                     "('model', b'VirtualMac2,1\\0'),"),
+                    ("*([('target-type', b'J120\\0')] if args.ipad_identity else []),",
+                     "('target-type', b'VMA2MACOS\\0'), ('target-sub-type', b'VMA2MACOSAP\\0'),"),
+                    ("        *([node('buttons', [('compatible', b'buttons\\0'), ('device_type', b'buttons\\0'),\n"
+                     "                            ('button-names', b'hold\\0voldown\\0volup\\0'),\n"
+                     "                            ('home-button-type', struct.pack('<I', 2))])] if args.ipad_identity else []),",
+                     "        node('buttons', [('aot-power', struct.pack('<I', 1))]),"),
+                    ("('product-name', b'iPad Pro (12.9-inch) (2nd generation)\\0' if args.ipad_identity else b'DroidVM guest\\0'),",
+                     "('product-name', b'Apple Virtual Machine 1\\0'),"),
+                    ("*([('product-description', b'iPad Pro (12.9-inch) (2nd generation)\\0'),\n"
+                     "                            ('artwork-device-idiom', b'pad\\0'),\n"
+                     "                            ('artwork-device-subtype', struct.pack('<I', 2732)),\n"
+                     "                            ('artwork-scale-factor', struct.pack('<I', 2)),\n"
+                     "                            ('artwork-display-gamut', args.display_gamut.encode() + b'\\0'),\n"
+                     "                            ('compatible-device-fallback', b'iPad6,7\\0'),\n"
+                     "                            ('thin-bezel', struct.pack('<I', 1))] if args.ipad_identity else [])]),",
+                     "('product-description', b'virtual machine for ARM-v8.4 with Apple Silicon extensions\\0'),\n"
+                     "                         ('artwork-device-idiom', b'mac\\0'), ('artwork-device-subtype', struct.pack('<I', 0)),\n"
+                     "                         ('artwork-scale-factor', struct.pack('<I', 2)), ('artwork-dynamic-displaymode', b'0\\0'),\n"
+                     "                         ('artwork-display-gamut', args.display_gamut.encode() + b'\\0'),\n"
+                     "                         ('compatible-device-fallback', b'iPad8,6\\0'), ('compatible-app-variant', b'MacFamily20,1\\0'),\n"
+                     "                         ('fdr-product-type', b'VirtualMac2,1\\0'), ('sub-product-type', b'VirtualMac2,1\\0'),\n"
+                     "                         ('unique-model', b'VMA2MACOSAP\\0'), ('partition-style', b'macOS\\0'),\n"
+                     "                         ('graphics-featureset-class', b'APPLE7\\0'),\n"
+                     "                         ('graphics-featureset-fallbacks', b'APPLE6:APPLE5:APPLE4:APPLE3:APPLE3v1:APPLE2:APPLE1:GLES2,0\\0'),\n"
+                     "                         ('device-perf-memory-class', struct.pack('<I', 16)), ('app-macho-architecture', b'arm64\\0'),\n"
+                     "                         ('allow-32bit-apps', struct.pack('<I', 1)), ('ui-weather-quality', struct.pack('<I', 100)),\n"
+                     "                         ('has-virtualization', struct.pack('<I', 1)), ('udid-version', struct.pack('<I', 2)),\n"
+                     "                         ('single-stage-boot', struct.pack('<I', 1)), ('dual-iboot-support', struct.pack('<I', 1)),\n"
+                     "                         ('atomic-firmware-update-support', struct.pack('<I', 1)), ('mobiledevice-min-ver', b'1853\\0'),\n"
+                     "                         ('chrome-identifier', b'0\\0'), ('framebuffer-identifier', b'0\\0')]),")):
+                assert text.count(old) == 1, old
+                text = text.replace(old, new)
         # /bluetooth, as upstream's iPadOS 27 board (UniXNU-droidvm make-droidvm-adt.py): bluetoothd finds its controller by name
         # (IOServiceNameMatching "marconi-bt", then "bluetooth") and without one exits ("Unable to match bluetooth service in device
         # tree"), and CoreBluetooth's clients never get a state: IOBluetoothCoreBluetoothCoordinator's init waits for its central
@@ -230,6 +308,8 @@ def make_adt(fdt, dram_size, unique_chip_id, output, cpu_regs='0', gpu=False, vi
         text = text.replace(marker, "                for address, size in gpu],\n"
                                     "              *[node('virtio-gpu', [('compatible', b'droidvm,virtio-gpu\\0'),"
                                     " ('reg', struct.pack('<QQ', address - ARMIO_BASE, size)), ('dma-coherent', b''),"
+                                    " *[('gic-spi', struct.pack('<I', cells(props['interrupts'])[1] + 32)) for props in fdt_nodes.values()"
+                                    " if props.get('compatible', b'').startswith(b'virtio,mmio\\0') and reg_pairs(props['reg'])[0][0] == address],"
                                     # drm-host-pool: the FDT's drm2kgsl_host pool (absolute GPA, size), where the host carves the 3D
                                     # contexts' shmem (DroidVMVirtioGpu3D.cpp; as the upstream tool's)
                                     " *[('drm-host-pool', struct.pack('<QQ', *reg_pairs(props['reg'])[0])) for path, props in fdt_nodes.items()"
@@ -241,12 +321,16 @@ def make_adt(fdt, dram_size, unique_chip_id, output, cpu_regs='0', gpu=False, vi
                                     " for address, size in vm['virtio_mmio'] if address == args.net_mmio],\n"
                                     # virtio-snd (crosvm --virtio-mmio-snd): DroidVMAudio's sound card (as the upstream tool's --snd-mmio)
                                     "              *[node('virtio-snd', [('compatible', b'droidvm,virtio-snd\\0'),"
-                                    " ('reg', struct.pack('<QQ', address - ARMIO_BASE, size)), ('dma-coherent', b'')])"
+                                    " ('reg', struct.pack('<QQ', address - ARMIO_BASE, size)), ('dma-coherent', b''),"
+                                    " *[('gic-spi', struct.pack('<I', cells(props['interrupts'])[1] + 32)) for props in fdt_nodes.values()"
+                                    " if props.get('compatible', b'').startswith(b'virtio,mmio\\0') and reg_pairs(props['reg'])[0][0] == address]])"
                                     " for address, size in vm['virtio_mmio'] if address == args.snd_mmio],\n"
                                     # virtio-media-N (crosvm --virtio-mmio-media): DroidVMVideo's decoder and encoder, with the FDT's
                                     # media_host pool (absolute GPA, size) their MMAP buffers live in (as the upstream tool's --media-mmio)
                                     "              *[node('virtio-media-%d' % index, [('compatible', b'droidvm,virtio-media\\0'),"
                                     " ('reg', struct.pack('<QQ', address - ARMIO_BASE, size)), ('dma-coherent', b''),"
+                                    " *[('gic-spi', struct.pack('<I', cells(props['interrupts'])[1] + 32)) for props in fdt_nodes.values()"
+                                    " if props.get('compatible', b'').startswith(b'virtio,mmio\\0') and reg_pairs(props['reg'])[0][0] == address],"
                                     " *[('media-host-pool', struct.pack('<QQ', *reg_pairs(props['reg'])[0])) for path, props in fdt_nodes.items()"
                                     " if path.startswith('/reserved-memory/media_host@')]])"
                                     " for index, (address, size) in enumerate([window for base in args.media_mmio for window in vm['virtio_mmio']"
@@ -277,7 +361,9 @@ def make_adt(fdt, dram_size, unique_chip_id, output, cpu_regs='0', gpu=False, vi
                     *(['--cpu-regs', cpu_regs] if cpu_regs else []),
                     '--root-match-volume-uuid', OS_UUID, '--packed-data-ramdisk',
                     '--ipad-identity', '--unique-chip-id', unique_chip_id, '--chip-id', '8011',
-                    '--trust-cache', '--data-ramdisk', '--data-store-mmio', hex(DATA_STORE_MMIO), '--reclaim-memory',
+                    '--trust-cache',
+                    *(['--data-ramdisk', '--data-store-mmio', hex(DATA_STORE_MMIO)] if os.environ.get('MACOS_DATA_PCI') != '1' else []),
+                    '--reclaim-memory',
                     *(['--gpu-mmio', hex(last_virtio_mmio(tool, fdt, media + int(snd) + int(virtio_gpu) + int(net)))] if gpu else []),
                     *(['--net-mmio', hex(last_virtio_mmio(tool, fdt, media + int(snd) + int(virtio_gpu)))] if net else []),
                     *(['--virtio-gpu-mmio', hex(last_virtio_mmio(tool, fdt, media + int(snd)))] if virtio_gpu else []),
