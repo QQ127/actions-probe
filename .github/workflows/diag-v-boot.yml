@@ -1,0 +1,68 @@
+name: Build -v diagnostic boot.img (k27)
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagboot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      MACOS_FDT: configs/k27-generated.dtb
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ws
+
+      - name: Free disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/local/share/boost || true
+
+      - uses: ./ws/.github/actions/host
+        with:
+          packages: 'true'
+
+      - name: Sources and boot loaders
+        working-directory: ws
+        run: python3 scripts/setup-env.py sources --part image
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: kc.tar.zst.enc.000
+          path: ${{ runner.temp }}
+          run-id: 44123746848
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundles.tar.zst
+          path: ${{ runner.temp }}
+          run-id: 44123746848
+          github-token: ${{ github.token }}
+
+      - name: Add -v and build diagnostic boot.img
+        working-directory: ws
+        run: |
+          set -euo pipefail
+          scripts/ci-blob.sh unpack . "$RUNNER_TEMP/kc.tar.zst.enc.000"
+          zstd -d -q -c "$RUNNER_TEMP/bundles.tar.zst" | tar -xf -
+          python3 - <<'PY'
+          import json
+          p="configs/product-k27.json"
+          d=json.load(open(p))
+          for a in ["-v","msgbuf=1048576"]:
+              if a not in d["kernel_args"]: d["kernel_args"].append(a)
+          json.dump(d,open(p,"w"),indent=1)
+          print("kernel_args:",d["kernel_args"])
+          PY
+          MACOS_FDT="$GITHUB_WORKSPACE/ws/configs/k27-generated.dtb" python3 scripts/product.py boot
+
+      - name: Upload diagnostic boot.img
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-boot-img
+          path: ws/out/product/k27/boot.img
+          if-no-files-found: warn
+          retention-days: 30
