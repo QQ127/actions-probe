@@ -86,8 +86,17 @@ class Macho:
 def read_threaded_chains(kernel, image, flat):
     """Decode the kernel's threaded rebases. Returns [(site_va, target_va, auth, diversity, addr_div, key)] and zeroes nothing."""
     text = kernel.segment('__TEXT')['va']
-    starts = kernel.section('__TEXT', '__thread_starts')
+    try:
+        starts = kernel.section('__TEXT', '__thread_starts')
+    except StopIteration:
+        return []
+    if starts['size'] < 4:
+        # A plain/kc-layout relink can legitimately carry no chained-fixup starts
+        # (empty or absent __thread_starts). There is then nothing to rebase here.
+        return []
     words = struct.unpack_from(f'<{starts["size"] // 4}I', kernel.data, starts['fileoff'])
+    if not words:
+        return []
     step = 8 if words[0] & 1 else 4
     sites = []
     for first in words[1:]:
