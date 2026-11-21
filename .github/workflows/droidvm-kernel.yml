@@ -4,6 +4,8 @@ on:
     inputs:
       unixnu_ref: {description: 'Droid-VM/UniXNU ref', default: 'wip/hackintosh'}
       device_ref: {description: 'Droid-VM/UniXNU-droidvm ref', default: 'wip/hackintosh'}
+      only: {description: 'steps', default: 'setup,volumes,reference,kernel'}
+      chip: {description: 'unique-chip-id (16 hex)', default: '47554e5941480001'}
       runner: {default: 'macos-26'}
 jobs:
   kernel:
@@ -27,31 +29,21 @@ jobs:
           git clone --filter=blob:none -b "${{ inputs.device_ref }}" https://github.com/Droid-VM/UniXNU-droidvm.git device
           git -C device submodule update --init --recursive --filter=blob:none
           git -C UniXNU log --oneline -1; git -C device log --oneline -1
-      - name: Fetch
-        working-directory: UniXNU
+          ls device/scripts | head
+      - name: Build (device orchestrator)
+        working-directory: device
         run: |
-          ./unixnu defconfig droidvm_defconfig -D ../device
-          ./unixnu fetch
-      - name: Build kernel
-        working-directory: UniXNU
-        run: |
-          jobs="-j $(sysctl -n hw.ncpu)"
-          extra=""
-          if [ -d "$GITHUB_WORKSPACE/ci/local" ]; then extra="--local $GITHUB_WORKSPACE/ci/local"; fi
-          echo "extra=$extra"
-          tree="out/droidvm/tree"
-          ./unixnu build kernel $jobs $extra || echo "== first pass stopped =="
-          if [ -f "$GITHUB_WORKSPACE/ci/scripts/placeholder-archives.py" ] && [ ! -f "$tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/startup.o.json" ]; then
-            python3 "$GITHUB_WORKSPACE/ci/scripts/placeholder-archives.py" "$tree" || echo "placeholder step failed"
-          fi
-          ./unixnu build kernel $jobs $extra
+          python3 scripts/build-droidvm-all.py --unixnu "$GITHUB_WORKSPACE/UniXNU" \
+            --unique-chip-id "${{ inputs.chip }}" \
+            --only "${{ inputs.only }}" 2>&1 | tee /tmp/build.log
       - name: Collect
         if: always()
         run: |
           mkdir -p collect
-          find UniXNU/out -maxdepth 5 -name 'kernel.macho' -print -exec cp -v {} collect/ \; || true
-          (cd UniXNU && find out -maxdepth 4 -type d -name logs -exec cp -R {} "$GITHUB_WORKSPACE/collect/" \; 2>/dev/null) || true
-          ls -la collect
+          find "$GITHUB_WORKSPACE/device/out" -maxdepth 5 -name 'kernel.macho' -print -exec cp -v {} collect/ \; || true
+          cp -v /tmp/build.log collect/build.log || true
+          (cd "$GITHUB_WORKSPACE/device" && find out -maxdepth 3 -type d -name logs -exec cp -R {} "$GITHUB_WORKSPACE/collect/" \; 2>/dev/null) || true
+          ls -la collect | head -20
       - uses: actions/upload-artifact@v4
         if: always()
         with:
