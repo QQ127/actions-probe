@@ -44,6 +44,8 @@ jobs:
           PY2
       - name: Build (device orchestrator)
         working-directory: device
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
           python3 scripts/build-droidvm-all.py --unixnu "$GITHUB_WORKSPACE/UniXNU" \
