@@ -29,6 +29,19 @@ jobs:
           git -C UniXNU submodule update --init --recursive --filter=blob:none
           git clone --filter=blob:none -b "${{ inputs.device_ref }}" https://github.com/Droid-VM/UniXNU-droidvm.git device
           git -C device submodule update --init --recursive --filter=blob:none
+      - name: Patch legacy display (clang -Werror pointer-bool-conversion)
+        run: |
+          python3 - <<'PY2'
+          import pathlib
+          p = pathlib.Path("device/package/DroidVMVirtioGpu3D.cpp")
+          s = p.read_text()
+          old = "if (!gSurfaceUses || gSurfaceUseCount == MaxSurfaceUses)"
+          new = "if ((DROIDVM_VIRTIO_GPU_DYNAMIC && !gSurfaceUses) || gSurfaceUseCount == MaxSurfaceUses)"
+          if old not in s:
+              raise SystemExit("patch pattern not found")
+          p.write_text(s.replace(old, new))
+          print("patched", p)
+          PY2
       - name: Build (device orchestrator)
         working-directory: device
         run: |
