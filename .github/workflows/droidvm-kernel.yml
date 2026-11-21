@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: QQ127/macOS-DroidVM
+          ref: from-macos-droidvm
           path: ci
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
