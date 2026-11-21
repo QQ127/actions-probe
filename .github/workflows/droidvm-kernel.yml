@@ -42,14 +42,25 @@ jobs:
           p.write_text(s.replace(old, new))
           print("patched", p)
           PY2
-      - name: Build (device orchestrator)
+      - name: Build (staged: reference first)
         working-directory: device
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
           python3 scripts/build-droidvm-all.py --unixnu "$GITHUB_WORKSPACE/UniXNU" \
-            --unique-chip-id "${{ inputs.chip }}" --only "${{ inputs.only }}" 2>&1 | tee /tmp/build.log
+            --unique-chip-id "${{ inputs.chip }}" \
+            --only setup,volumes,policies,data-base,reference 2>&1 | tee /tmp/build.log
+      - name: Build kernel (bootstrap-then-placeholder recipe)
+        working-directory: UniXNU
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          jobs="-j $(sysctl -n hw.ncpu)"
+          ./unixnu build kernel $jobs || echo "== first pass stopped as expected on a clean tree =="
+          python3 "$GITHUB_WORKSPACE/ci/scripts/placeholder-archives.py" out/droidvm/tree || echo "placeholder step failed"
+          ./unixnu build kernel $jobs 2>&1 | tee -a /tmp/build.log
       - name: Collect
         if: always()
         run: |
