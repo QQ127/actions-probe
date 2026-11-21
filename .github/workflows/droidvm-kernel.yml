@@ -1,0 +1,64 @@
+name: droidvm-kernel
+on:
+  workflow_dispatch:
+    inputs:
+      unixnu_ref:
+        description: Droid-VM/UniXNU ref
+        default: wip/hackintosh
+      device_ref:
+        description: Droid-VM/UniXNU-droidvm ref
+        default: wip/hackintosh
+      runner:
+        default: macos-26
+jobs:
+  kernel:
+    runs-on: ${{ inputs.runner || 'macos-26' }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: QQ127/macOS-DroidVM
+          path: ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Toolchain
+        run: |
+          ls -d /Applications/Xcode*.app || true
+          xcodebuild -version || true
+          brew install llvm lld cmake ninja unifdef mtools dtc || true
+          python3 -m pip install --upgrade pip
+      - name: Sources
+        run: |
+          git clone --filter=blob:none -b "${{ inputs.unixnu_ref }}" https://github.com/Droid-VM/UniXNU.git UniXNU
+          git -C UniXNU submodule update --init --recursive --filter=blob:none
+          git clone --filter=blob:none -b "${{ inputs.device_ref }}" https://github.com/Droid-VM/UniXNU-droidvm.git device
+          git -C device submodule update --init --recursive --filter=blob:none
+          git -C UniXNU log --oneline -1
+          git -C device log --oneline -1
+      - name: Fetch
+        working-directory: UniXNU
+        run: |
+          ./unixnu defconfig droidvm_defconfig -D ../device
+          ./unixnu fetch
+      - name: Build kernel
+        working-directory: UniXNU
+        run: |
+          jobs="-j $(sysctl -n hw.ncpu)"
+          ./unixnu build kernel $jobs --local "$PWD/../ci/local" || echo "first pass stopped"
+          ./unixnu build kernel $jobs --local "$PWD/../ci/local"
+      - name: Collect
+        if: always()
+        run: |
+          mkdir -p collect
+          find UniXNU/out -maxdepth 4 -name 'kernel.macho' -o -maxdepth 4 -name '*.adt' | head -20
+          cp -v UniXNU/out/droidvm/kernel/kernel.macho collect/ 2>/dev/null || true
+          (cd UniXNU && find out -maxdepth 3 -type d -name logs -exec cp -R {} ../collect/ \; 2>/dev/null) || true
+          ls -la collect
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kernel-plain
+          path: collect
+          if-no-files-found: warn
+          retention-days: 14
