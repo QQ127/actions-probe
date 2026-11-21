@@ -42,7 +42,7 @@ jobs:
           p.write_text(s.replace(old, new))
           print("patched", p)
           PY2
-      - name: Build (staged: reference first)
+      - name: Build staged reference first
         working-directory: device
         env:
           GITHUB_TOKEN: ${{ github.token }}
