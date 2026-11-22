@@ -30,6 +30,19 @@ jobs:
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" -O binary \
             target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
           ls -l ../hypervisor/src/gunyah/shim.bin
+      - name: Build libcap for android
+        run: |
+          CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          AR="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          curl -sSLO https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.69.tar.gz
+          tar xf libcap-2.69.tar.gz
+          cd libcap-2.69
+          make -j4 CC="$CC" AR="$AR" BUILD_CC=gcc BUILD_AR=ar USE_GPERF=no PAM_CAP=no LIBATTR=no \
+            RAISE_SETFCAP=no OBJCOPY="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" \
+            RANLIB="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
+            STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
+            DESTDIR=$PWD/sysroot prefix=/usr lib=lib install
+          ls sysroot/usr/include/sys/capability.h sysroot/usr/lib/libcap.a
       - name: Cross wrappers
         run: |
           mkdir -p $HOME/xb
@@ -51,6 +64,10 @@ jobs:
           CXX_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
           AR_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
           RANLIB_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib
+          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
+          CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
+          LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
+          RUSTFLAGS: "-L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
