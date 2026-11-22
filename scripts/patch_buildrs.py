@@ -12,6 +12,14 @@ SYMS = [
     "vnc_h264_rfb_client_count", "vnc_h264_rfb_join_generation", "vnc_h264_rfb_reset",
     "vnc_h264_rfb_submit", "vnc_h264_rfb_set_caps", "vnc_h264_rfb_tick",
     "vnc_h264_rfb_display_hook",
+    "android_video_enc_get_name", "android_video_enc_create", "android_h264_enc_create",
+    "android_h264_enc_encode_frame", "android_h264_enc_request_sync_frame", "android_h264_enc_poll_output",
+    "android_h264_enc_frame_counts", "android_h264_enc_destroy",
+    "create_android_display_context", "destroy_android_display_context", "get_android_surface_buffer",
+    "set_android_surface_position", "set_android_surface_buffer_format", "post_android_surface_buffer",
+    "android_display_flip_to", "android_display_release_import", "android_display_has_consumer",
+    "android_blit_ctx_destroy", "android_blit_ctx_create", "android_blit_ctx_blit",
+    "__android_log_write_log_message", "__android_log_close",
 ]
 
 stub_src = "/* generated: VNC is unused on this build */\n#include <stdint.h>\n"
