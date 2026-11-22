@@ -54,6 +54,6 @@ fn build_android_extras() {
 fn main() {'''
 s = s.replace("fn main() {", helper, 1)
 s = s.replace('        "linux" | "android" => {',
-              '        "android" => {\n            build_wayland();\n            build_android_extras();\n        }\n        "linux" => {', 1)
+              '        "android" => {\n            build_android_extras();\n        }\n        "linux" => {', 1)
 open(p, "w").write(s)
 print("patched build.rs + wrote vnc_stubs.c")
