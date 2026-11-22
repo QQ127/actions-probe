@@ -35,8 +35,6 @@ fn build_android_extras() {
     build.compile("android_extras");
     println!("cargo:rustc-link-lib=dylib=android");
     println!("cargo:rustc-link-lib=dylib=log");
-    println!("cargo:rustc-link-lib=dylib=nativewindow");
-    println!("cargo:rustc-link-lib=dylib=mediandk");
 }
 fn main() {'''
 s = s.replace("fn main() {", helper, 1)
