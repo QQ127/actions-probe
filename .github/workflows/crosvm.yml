@@ -10,7 +10,7 @@ jobs:
       - name: Env
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config unzip curl python3 libwayland-bin wayland-protocols libwayland-dev
+          sudo apt-get install -y -qq build-essential pkg-config unzip curl python3 meson ninja-build libwayland-bin wayland-protocols libwayland-dev
           sudo dpkg --add-architecture arm64 || true
           sudo sed -i '/^Types:/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources || true
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
@@ -28,6 +28,7 @@ jobs:
         run: |
           git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
           rm -rf crosvm/third_party/minijail
+          rm -rf crosvm/third_party/virglrenderer
           git clone --depth 1 https://gitlab.freedesktop.org/virgl/virglrenderer.git crosvm/third_party/virglrenderer || \
             git clone --depth 1 https://github.com/Droid-VM/virglrenderer.git crosvm/third_party/virglrenderer || true
           ls crosvm/third_party/virglrenderer | head -3
