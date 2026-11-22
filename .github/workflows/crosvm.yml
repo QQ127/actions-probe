@@ -39,6 +39,8 @@ jobs:
           RUSTFLAGS: "-C target-feature=+crt-static"
           PKG_CONFIG_PATH: /home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig
           PKG_CONFIG_ALLOW_CROSS: "1"
+          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
+          CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           CFLAGS_aarch64_unknown_linux_gnu: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
         run: |
