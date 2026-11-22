@@ -40,6 +40,18 @@ jobs:
           cp libcap/include/sys/capability.h sysroot/usr/include/sys/
           cp libcap/libcap.a sysroot/usr/lib/
           ls sysroot/usr/include/sys/capability.h sysroot/usr/lib/libcap.a
+      - name: Cross wrappers
+        run: |
+          mkdir -p $HOME/xb
+          B="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          printf '#!/bin/sh\nexec "%s/aarch64-linux-android24-clang" "$@"\n' "$B" > $HOME/xb/aarch64-android--gcc
+          printf '#!/bin/sh\nexec "%s/aarch64-linux-android24-clang++" "$@"\n' "$B" > $HOME/xb/aarch64-android--g++
+          printf '#!/bin/sh\nexec "%s/llvm-ar" "$@"\n' "$B" > $HOME/xb/aarch64-android--ar
+          printf '#!/bin/sh\nexec "%s/llvm-ranlib" "$@"\n' "$B" > $HOME/xb/aarch64-android--ranlib
+          printf '#!/bin/sh\nexec "%s/llvm-objcopy" "$@"\n' "$B" > $HOME/xb/aarch64-android--objcopy
+          printf '#!/bin/sh\nexec "%s/llvm-strip" "$@"\n' "$B" > $HOME/xb/aarch64-android--strip
+          chmod +x $HOME/xb/*
+          echo "$HOME/xb" >> $GITHUB_PATH
       - name: Build crosvm
         working-directory: crosvm
         env:
