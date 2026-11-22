@@ -59,6 +59,19 @@ jobs:
           printf '#!/bin/sh\nexec "%s/llvm-strip" "$@"\n' "$B" > $HOME/xb/aarch64-android--strip
           chmod +x $HOME/xb/*
           echo "$HOME/xb" >> $GITHUB_PATH
+      - name: Build libvncserver
+        run: |
+          git clone --depth 1 https://github.com/Droid-VM/libvncserver.git lvnc
+          cmake -S lvnc -B lvnc-build \
+            -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_INSTALL_PREFIX=$PWD/lvnc-sysroot \
+            -DWITH_JPEG=OFF -DWITH_PNG=OFF -DWITH_ZLIB=OFF -DWITH_LZO=OFF \
+            -DWITH_GCRYPT=OFF -DWITH_SDL=OFF -DWITH_GTK=OFF -DWITH_FFMPEG=OFF \
+            -DWITH_TESTS=OFF -DWITH_EXAMPLES=OFF -DLIBVNCSERVER_WITH_WEBSOCKETS=OFF
+          cmake --build lvnc-build -j4
+          cmake --install lvnc-build
+          ls lvnc-sysroot/include/rfb/rfb.h lvnc-sysroot/lib
       - name: Build crosvm
         working-directory: crosvm
         env:
@@ -67,10 +80,10 @@ jobs:
           CC_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           CXX_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
           AR_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
+          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/include -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
-          LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
-          RUSTFLAGS: "-L native=/tmp/stublib -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
+          LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/lib -L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
+          RUSTFLAGS: "-L native=/tmp/stublib -L native=/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/lib -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
