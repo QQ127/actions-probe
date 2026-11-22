@@ -36,7 +36,7 @@ jobs:
           cd crosvm/droidvm-shim
           cargo build --release
           ELF=$(ls target/aarch64-unknown-none-softfloat/release/droidvm-shim)
-          objcopy -O binary "$ELF" ../hypervisor/src/gunyah/shim.bin
+          aarch64-linux-gnu-objcopy -O binary "$ELF" ../hypervisor/src/gunyah/shim.bin
           ls -l ../hypervisor/src/gunyah/shim.bin
       - name: Build
         working-directory: crosvm
