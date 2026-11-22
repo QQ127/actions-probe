@@ -21,6 +21,10 @@ jobs:
           cd ..
           mkdir -p sysroot/usr/lib/aarch64-linux-gnu/pkgconfig
           printf '%s\n' 'Name: libdrm_intel' 'Description: stub' 'Version: 2.4.120' 'libdir=/usr/lib/aarch64-linux-gnu' 'includedir=/usr/include/libdrm' 'Libs: -L${libdir} -ldrm' 'Cflags: -I${includedir}' > sysroot/usr/lib/aarch64-linux-gnu/pkgconfig/libdrm_intel.pc
+          mkdir -p sysroot/usr/include/cutils sysroot/usr/include/log
+          printf '%s\n' '#pragma once' '#include <android/log.h>' > sysroot/usr/include/cutils/log.h
+          cp sysroot/usr/include/cutils/log.h sysroot/usr/include/log/log.h
+          printf '%s\n' '#pragma once' '#define PROPERTY_VALUE_MAX 92' '#ifdef __cplusplus' 'extern "C" {' '#endif' 'int property_get(const char* key, char* value, const char* default_value);' 'int property_set(const char* key, const char* value);' '#ifdef __cplusplus' '}' '#endif' > sysroot/usr/include/cutils/properties.h
           P=sysroot/usr/lib/aarch64-linux-gnu/pkgconfig
           printf '%s\n' 'Name: egl' 'Description: stub' 'Version: 1.5' 'Libs: -lEGL' 'Cflags:' > $P/egl.pc
           printf '%s\n' 'Name: glesv2' 'Description: stub' 'Version: 3.2' 'Libs: -lGLESv2' 'Cflags:' > $P/glesv2.pc
@@ -32,17 +36,10 @@ jobs:
       - name: Clone
         run: |
           git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
-          git -C crosvm log -1 --oneline
-          rm -rf crosvm/third_party/minijail
-          rm -rf crosvm/third_party/virglrenderer
-          git clone --depth 1 https://gitlab.freedesktop.org/virgl/virglrenderer.git crosvm/third_party/virglrenderer || \
-            git clone --depth 1 https://github.com/Droid-VM/virglrenderer.git crosvm/third_party/virglrenderer || true
-          ls crosvm/third_party/virglrenderer | head -3
+          rm -rf crosvm/third_party/minijail crosvm/third_party/minigbm crosvm/third_party/virglrenderer
           git clone --depth 1 https://chromium.googlesource.com/chromiumos/platform/minijail crosvm/third_party/minijail
-          rm -rf crosvm/third_party/minigbm
-          git clone --depth 1 https://chromium.googlesource.com/chromiumos/platform/minigbm crosvm/third_party/minigbm || \
-            git clone --depth 1 https://github.com/Droid-VM/minigbm.git crosvm/third_party/minigbm || true
-          ls crosvm/third_party/minigbm | head -3
+          git clone --depth 1 https://chromium.googlesource.com/chromiumos/platform/minigbm crosvm/third_party/minigbm
+          git clone --depth 1 https://gitlab.freedesktop.org/virgl/virglrenderer.git crosvm/third_party/virglrenderer
       - name: Build droidvm-shim
         env:
           RUSTUP_TOOLCHAIN: stable
@@ -50,6 +47,7 @@ jobs:
           cd crosvm/droidvm-shim
           cargo build --release
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" -O binary target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
+          ls -l ../hypervisor/src/gunyah/shim.bin
       - name: Build libcap
         run: |
           CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang"
@@ -60,14 +58,6 @@ jobs:
           make -j4 CC="$CC" AR="$AR" BUILD_CC=gcc BUILD_AR=ar USE_GPERF=no PAM_CAP=no LIBATTR=no RAISE_SETFCAP=no -C libcap libcap.a
           mkdir -p sysroot/usr/include/sys sysroot/usr/lib
           cp libcap/include/sys/capability.h sysroot/usr/include/sys/
-          mkdir -p sysroot/usr/include/cutils sysroot/usr/include/log
-          printf '%s\n' '#pragma once' '#include <android/log.h>' > sysroot/usr/include/cutils/log.h
-          cp sysroot/usr/include/cutils/log.h sysroot/usr/include/log/log.h
-          printf '%s\n' '#pragma once' '#define PROPERTY_VALUE_MAX 92' '#ifdef __cplusplus' 'extern "C" {' '#endif' \
-            'int property_get(const char* key, char* value, const char* default_value);' \
-            'int property_set(const char* key, const char* value);' \
-            '#ifdef __cplusplus' '}' '#endif' > sysroot/usr/include/cutils/properties.h
-          ls sysroot/usr/include/cutils/
           cp libcap/libcap.a sysroot/usr/lib/
       - name: Cross wrappers
         run: |
@@ -103,24 +93,18 @@ jobs:
           cpu = 'aarch64'
           endian = 'little'
           EOF
-          cat /usr/local/share/meson/cross/aarch64
       - name: Build libepoxy
         env:
           PKG_CONFIG_ALLOW_CROSS: "1"
           PKG_CONFIG_LIBDIR: "/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/34:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/pkgconfig"
         run: |
           git clone --depth 1 https://github.com/anholt/libepoxy.git epoxy
-          meson setup epoxy-build epoxy \
-            --cross-file aarch64 \
-            --prefix=$PWD/epoxy-sysroot \
-            -Dglx=no -Degl=yes -Dtests=false -Ddocs=false
+          meson setup epoxy-build epoxy --cross-file aarch64 --prefix=$PWD/epoxy-sysroot -Dglx=no -Degl=yes -Dtests=false -Ddocs=false
           meson compile -C epoxy-build
           meson install -C epoxy-build
-          ls epoxy-sysroot/lib/pkgconfig || true
           for pc in epoxy-sysroot/lib/pkgconfig/epoxy.pc epoxy-sysroot/lib/aarch64-linux-gnu/pkgconfig/epoxy.pc; do
             [ -f "$pc" ] && printf '\nepoxy_has_egl=1\nepoxy_has_glx=0\n' >> "$pc" && cat "$pc"
           done
-          ls epoxy-sysroot/include/epoxy/egl.h
       - name: Build crosvm
         working-directory: crosvm
         env:
@@ -129,23 +113,32 @@ jobs:
           CC_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang
           CXX_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang++
           AR_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/crosvm/third_party/minigbm -I/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include/libdrm -I/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/include -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
+          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/crosvm/third_party/minigbm -I/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include/libdrm -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -Wno-error -Wno-unused-command-line-argument"
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/lib -L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           RUSTFLAGS: "-L native=/tmp/stublib -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           PKG_CONFIG_ALLOW_CROSS: "1"
           PKG_CONFIG_SYSROOT_DIR: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-          PKG_CONFIG_LIBDIR: "/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/34:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig"
+          PKG_CONFIG_LIBDIR: "/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/34:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig"
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
-      - name: Probe output
+          sed -i '/_Static_assert/d' third_party/minijail/system.c
+          python3 ../scripts/patch_buildrs.py
+          mkdir -p /tmp/stublib && $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar rcs /tmp/stublib/libprocessgroup.a
+          rm -f Cargo.lock
+          set +e
+          cargo build --release --target aarch64-linux-android --features gunyah,vnc > /tmp/build.log 2>&1
+          rc=$?
+          echo "exit=$rc"
+          grep -E "^error|error\[|cannot find|undefined symbol" /tmp/build.log | head -30
+          tail -20 /tmp/build.log
+          exit $rc
+      - name: Probe
         if: always()
         run: |
-          echo "--- find crosvm binaries ---"
-          find . -name 'crosvm' -type f -size +1M 2>/dev/null | head -5
-          ls -l crosvm/target/aarch64-linux-android/release/ 2>/dev/null | head -10
-          tail -5 /tmp/build.log 2>/dev/null
+          find . -name crosvm -type f -size +1M 2>/dev/null | head
+          ls -l crosvm/target/aarch64-linux-android/release/crosvm 2>/dev/null
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
