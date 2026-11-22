@@ -115,6 +115,10 @@ jobs:
             -Dglx=no -Degl=yes -Dtests=false -Ddocs=false
           meson compile -C epoxy-build
           meson install -C epoxy-build
+          ls epoxy-sysroot/lib/pkgconfig || true
+          for pc in epoxy-sysroot/lib/pkgconfig/epoxy.pc epoxy-sysroot/lib/aarch64-linux-gnu/pkgconfig/epoxy.pc; do
+            [ -f "$pc" ] && printf '\nepoxy_has_egl=1\nepoxy_has_glx=0\n' >> "$pc" && cat "$pc"
+          done
           ls epoxy-sysroot/include/epoxy/egl.h
       - name: Build crosvm
         working-directory: crosvm
