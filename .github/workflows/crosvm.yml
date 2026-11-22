@@ -6,20 +6,23 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - name: Env
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config libssl-dev libcap-dev             libdrm-dev libwayland-dev protobuf-compiler gcc-aarch64-linux-gnu musl-tools             python3 python3-pip
-          rustup target add aarch64-unknown-linux-musl aarch64-unknown-linux-gnu
+          sudo apt-get install -y -qq build-essential pkg-config libssl-dev libcap-dev             libdrm-dev libwayland-dev protobuf-compiler musl-tools python3
+          rustup toolchain install stable --profile minimal
+          rustup target add --toolchain stable aarch64-unknown-linux-musl
       - name: Clone crosvm (macOS branch)
         run: git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
       - name: Build
         working-directory: crosvm
+        env:
+          RUSTUP_TOOLCHAIN: stable
         run: |
           set -o pipefail
-          cargo build --release --target aarch64-unknown-linux-musl --features gunyah 2>&1 | tail -80
+          cargo build --release --target aarch64-unknown-linux-musl --features gunyah 2>&1 | tail -100
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
