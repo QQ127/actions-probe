@@ -37,6 +37,8 @@ SYMS = [
 stub_src = "/* generated: VNC is unused on this build */\n#include <stdint.h>\n"
 for name in SYMS:
     stub_src += "uint64_t %s(void) { return 0; }\n" % name
+stub_src += "int property_get(const char *k, char *v, const char *d) { (void)k; (void)d; if (v) v[0] = 0; return 0; }\n"
+stub_src += "int property_set(const char *k, const char *v) { (void)k; (void)v; return 0; }\n"
 open("gpu_display/src/vnc_stubs.c", "w").write(stub_src)
 
 p = "gpu_display/build.rs"
