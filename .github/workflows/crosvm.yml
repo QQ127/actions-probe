@@ -81,7 +81,7 @@ jobs:
           mkdir -p /tmp/stublib && $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar rcs /tmp/stublib/libprocessgroup.a
           rm -f Cargo.lock
           set +e
-          cargo build --release --target aarch64-linux-android --features gunyah,android_display,vnc,gpu_display/android_display > /tmp/build.log 2>&1
+          cargo build --release --target aarch64-linux-android --features gunyah,android_display,vnc,gpu_display/android_display,virgl_renderer > /tmp/build.log 2>&1
           rc=$?
           echo "exit=$rc"
           grep -E "^error|error\[|cannot find|undefined symbol" /tmp/build.log | head -30
