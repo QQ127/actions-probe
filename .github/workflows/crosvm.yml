@@ -16,22 +16,35 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup target add --toolchain stable aarch64-unknown-linux-musl
       - name: Clone
-        run: git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
-      - name: Clone minijail
         run: |
+          git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
+          rm -rf crosvm/third_party/minijail
           git clone --depth 1 https://chromium.googlesource.com/chromiumos/platform/minijail crosvm/third_party/minijail
           ls crosvm/third_party/minijail/rust/minijail | head -3
+      - name: Manifest check
+        working-directory: crosvm
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: cargo metadata --no-deps --format-version 1 > /dev/null && echo METADATA_OK
       - name: Build
         working-directory: crosvm
         env:
           RUSTUP_TOOLCHAIN: stable
         run: |
-          set -o pipefail
+          set +e
           cargo build --release --target aarch64-unknown-linux-musl \
-            --no-default-features --features gunyah 2>&1 | tail -120
+            --no-default-features --features gunyah > /tmp/build.log 2>&1
+          rc=$?
+          echo "exit=$rc"
+          grep -E "^error|error\[|cannot find|not found" /tmp/build.log | head -25
+          tail -30 /tmp/build.log
+          exit $rc
       - name: Upload
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: crosvm-aarch64
-          path: crosvm/target/aarch64-unknown-linux-musl/release/crosvm
+          path: |
+            crosvm/target/aarch64-unknown-linux-musl/release/crosvm
+            /tmp/build.log
           if-no-files-found: warn
