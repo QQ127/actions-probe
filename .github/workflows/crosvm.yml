@@ -57,6 +57,9 @@ jobs:
           mkdir -p sysroot/usr/include/sys sysroot/usr/lib
           cp libcap/include/sys/capability.h sysroot/usr/include/sys/
           mkdir -p sysroot/usr/include/cutils sysroot/usr/include/log
+          P=sysroot/usr/lib/aarch64-linux-gnu/pkgconfig
+          printf '%s\n' 'Name: egl' 'Description: stub' 'Version: 1.5' 'Libs: -lEGL' 'Cflags:' > $P/egl.pc
+          printf '%s\n' 'Name: glesv2' 'Description: stub' 'Version: 3.2' 'Libs: -lGLESv2' 'Cflags:' > $P/glesv2.pc
           printf '%s\n' '#pragma once' '#include <android/log.h>' > sysroot/usr/include/cutils/log.h
           cp sysroot/usr/include/cutils/log.h sysroot/usr/include/log/log.h
           printf '%s\n' '#pragma once' '#define PROPERTY_VALUE_MAX 92' '#ifdef __cplusplus' 'extern "C" {' '#endif' \
@@ -101,6 +104,9 @@ jobs:
           EOF
           cat /usr/local/share/meson/cross/aarch64
       - name: Build libepoxy
+        env:
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          PKG_CONFIG_LIBDIR: "/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/pkgconfig"
         run: |
           git clone --depth 1 https://github.com/anholt/libepoxy.git epoxy
           meson setup epoxy-build epoxy \
