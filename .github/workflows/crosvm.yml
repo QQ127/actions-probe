@@ -64,6 +64,8 @@ jobs:
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
           RUSTFLAGS: "-L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
           test -f /tmp/minijail_fexecve.c || true
