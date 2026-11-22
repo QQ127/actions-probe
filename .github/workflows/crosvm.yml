@@ -60,7 +60,7 @@ jobs:
           CC_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           CXX_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
           AR_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -Wno-implicit-function-declaration -Wno-error=implicit-function-declaration"
+          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
           RUSTFLAGS: "-L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
