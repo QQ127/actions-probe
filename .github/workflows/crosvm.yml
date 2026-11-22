@@ -67,7 +67,15 @@ jobs:
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
           test -f /tmp/minijail_fexecve.c || true
-          printf '%s\n' '#ifdef __ANDROID__' '#include <errno.h>' 'static int fexecve(int fd, char *const a[], char *const e[]) { (void)fd; (void)a; (void)e; errno = ENOSYS; return -1; }' '#endif' > /tmp/stub.h
+          printf '%s\n' \
+            '#ifdef __ANDROID__' \
+            '#include <errno.h>' \
+            '#include <unistd.h>' \
+            '#include <sys/syscall.h>' \
+            'static int fexecve(int fd, char *const a[], char *const e[]) { (void)fd; (void)a; (void)e; errno = ENOSYS; return -1; }' \
+            'static int unshare(int f) { return (int)syscall(__NR_unshare, f); }' \
+            'static int setns(int fd, int t) { return (int)syscall(__NR_setns, fd, t); }' \
+            '#endif' > /tmp/stub.h
           sed -i '1e cat /tmp/stub.h' third_party/minijail/libminijail.c
           sed -i '/_Static_assert/d' third_party/minijail/system.c
           head -8 third_party/minijail/libminijail.c
