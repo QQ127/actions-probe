@@ -89,7 +89,7 @@ jobs:
           RUSTFLAGS: "-L native=/tmp/stublib -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           PKG_CONFIG_ALLOW_CROSS: "1"
           PKG_CONFIG_SYSROOT_DIR: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-          PKG_CONFIG_LIBDIR: "/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig"
+          PKG_CONFIG_LIBDIR: "/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig"
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
