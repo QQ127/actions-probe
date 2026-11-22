@@ -96,6 +96,16 @@ jobs:
           endian = 'little'
           EOF
           cat /usr/local/share/meson/cross/aarch64
+      - name: Build libepoxy
+        run: |
+          git clone --depth 1 https://github.com/anholt/libepoxy.git epoxy
+          meson setup epoxy-build epoxy \
+            --cross-file aarch64 \
+            --prefix=$PWD/epoxy-sysroot \
+            -Dglx=no -Degl=yes -Dtests=false -Ddocs=false
+          meson compile -C epoxy-build
+          meson install -C epoxy-build
+          ls epoxy-sysroot/include/epoxy/egl.h
       - name: Build crosvm
         working-directory: crosvm
         env:
@@ -104,13 +114,13 @@ jobs:
           CC_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           CXX_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
           AR_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include/libdrm -I/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/include -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
+          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include/libdrm -I/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/include -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
-          LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
+          LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/lib -L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           RUSTFLAGS: "-L native=/tmp/stublib -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           PKG_CONFIG_ALLOW_CROSS: "1"
           PKG_CONFIG_SYSROOT_DIR: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot
-          PKG_CONFIG_LIBDIR: "/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig"
+          PKG_CONFIG_LIBDIR: "/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24:/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig"
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
