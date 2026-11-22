@@ -6,13 +6,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
+      - uses: actions/checkout@v4
       - name: Env
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential pkg-config unzip curl python3 libwayland-bin wayland-protocols libwayland-dev
-          curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
-          unzip -q ndk.zip
-          echo "NDK=$PWD/android-ndk-r26d" >> $GITHUB_ENV
           sudo dpkg --add-architecture arm64 || true
           sudo sed -i '/^Types:/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources || true
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
@@ -21,7 +19,9 @@ jobs:
           apt-get download libwayland-dev:arm64 libwayland-client0:arm64 libwayland-server0:arm64 libwayland-cursor0:arm64 libwayland-egl1:arm64 2>/dev/null || true
           for d in *.deb; do dpkg -x "$d" ../sysroot; done
           cd ..
-          ls sysroot/usr/include/wayland-client.h
+          curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          unzip -q ndk.zip
+          echo "NDK=$PWD/android-ndk-r26d" >> $GITHUB_ENV
           rustup toolchain install stable --profile minimal
           rustup target add --toolchain stable aarch64-linux-android aarch64-unknown-none-softfloat
       - name: Clone
@@ -36,7 +36,6 @@ jobs:
           cd crosvm/droidvm-shim
           cargo build --release
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" -O binary target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
-          ls -l ../hypervisor/src/gunyah/shim.bin
       - name: Build libcap
         run: |
           CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
@@ -48,7 +47,6 @@ jobs:
           mkdir -p sysroot/usr/include/sys sysroot/usr/lib
           cp libcap/include/sys/capability.h sysroot/usr/include/sys/
           cp libcap/libcap.a sysroot/usr/lib/
-          ls sysroot/usr/include/sys/capability.h sysroot/usr/lib/libcap.a
       - name: Cross wrappers
         run: |
           mkdir -p $HOME/xb
@@ -74,30 +72,20 @@ jobs:
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           RUSTFLAGS: "-L native=/tmp/stublib -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
-          BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
-          test -f /tmp/minijail_fexecve.c || true
-          printf '%s\n' \
-            '#ifdef __ANDROID__' \
-            '#include <errno.h>' \
-            '#include <unistd.h>' \
-            '#include <sys/syscall.h>' \
-            'static int fexecve(int fd, char *const a[], char *const e[]) { (void)fd; (void)a; (void)e; errno = ENOSYS; return -1; }' \
-            'static int unshare(int f) { return (int)syscall(__NR_unshare, f); }' \
-            'static int setns(int fd, int t) { return (int)syscall(__NR_setns, fd, t); }' \
-            '#endif' > /tmp/stub.h
+          printf '%s\n' '#ifdef __ANDROID__' '#include <errno.h>' '#include <unistd.h>' '#include <sys/syscall.h>' 'static int fexecve(int fd, char *const a[], char *const e[]) { (void)fd; (void)a; (void)e; errno = ENOSYS; return -1; }' 'static int unshare(int f) { return (int)syscall(__NR_unshare, f); }' 'static int setns(int fd, int t) { return (int)syscall(__NR_setns, fd, t); }' '#endif' > /tmp/stub.h
           sed -i '1e cat /tmp/stub.h' third_party/minijail/libminijail.c
           sed -i '/_Static_assert/d' third_party/minijail/system.c
-          head -8 third_party/minijail/libminijail.c
+          python3 ../scripts/patch_buildrs.py
           mkdir -p /tmp/stublib && $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar rcs /tmp/stublib/libprocessgroup.a
           rm -f Cargo.lock
           set +e
-          cargo build --release --target aarch64-linux-android --features gunyah,android_display,vnc > /tmp/build.log 2>&1
+          cargo build --release --target aarch64-linux-android --features gunyah,android_display,vnc,gpu_display/android_display > /tmp/build.log 2>&1
           rc=$?
           echo "exit=$rc"
-          grep -E "^error|error\[|cannot find|not found" /tmp/build.log | head -20
-          tail -25 /tmp/build.log
+          grep -E "^error|error\[|cannot find|undefined symbol" /tmp/build.log | head -30
+          tail -20 /tmp/build.log
           exit $rc
       - name: Upload
         if: always()
