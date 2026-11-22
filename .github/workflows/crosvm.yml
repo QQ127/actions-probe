@@ -89,6 +89,10 @@ jobs:
           strip = '$B/llvm-strip'
           pkgconfig = 'pkg-config'
 
+          [built-in options]
+          c_args = ['-Wno-error']
+          cpp_args = ['-Wno-error']
+
           [host_machine]
           system = 'android'
           cpu_family = 'aarch64'
@@ -114,7 +118,7 @@ jobs:
           CC_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           CXX_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
           AR_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/crosvm/third_party/minigbm -I/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include/libdrm -I/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/include -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument -Wno-gnu-offsetof -Wno-error=gnu-offsetof"
+          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/crosvm/third_party/minigbm -I/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include/libdrm -I/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/include -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/epoxy-sysroot/lib -L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           RUSTFLAGS: "-L native=/tmp/stublib -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
