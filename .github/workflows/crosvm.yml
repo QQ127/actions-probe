@@ -28,6 +28,9 @@ jobs:
         run: |
           git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
           rm -rf crosvm/third_party/minijail
+          git clone --depth 1 https://gitlab.freedesktop.org/virgl/virglrenderer.git crosvm/third_party/virglrenderer || \
+            git clone --depth 1 https://github.com/Droid-VM/virglrenderer.git crosvm/third_party/virglrenderer || true
+          ls crosvm/third_party/virglrenderer | head -3
           git clone --depth 1 https://chromium.googlesource.com/chromiumos/platform/minijail crosvm/third_party/minijail
       - name: Build droidvm-shim
         env:
