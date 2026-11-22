@@ -139,25 +139,3 @@ jobs:
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
-          printf '%s\n' '#ifdef __ANDROID__' '#include <errno.h>' '#include <unistd.h>' '#include <sys/syscall.h>' 'static int fexecve(int fd, char *const a[], char *const e[]) { (void)fd; (void)a; (void)e; errno = ENOSYS; return -1; }' 'static int unshare(int f) { return (int)syscall(__NR_unshare, f); }' 'static int setns(int fd, int t) { return (int)syscall(__NR_setns, fd, t); }' '#endif' > /tmp/stub.h
-          sed -i '1e cat /tmp/stub.h' third_party/minijail/libminijail.c
-          sed -i '/_Static_assert/d' third_party/minijail/system.c
-          python3 ../scripts/patch_buildrs.py
-          mkdir -p /tmp/stublib && $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar rcs /tmp/stublib/libprocessgroup.a
-          rm -f Cargo.lock
-          set +e
-          cargo build --release --target aarch64-linux-android --features gunyah,vnc > /tmp/build.log 2>&1
-          rc=$?
-          echo "exit=$rc"
-          grep -E "^error|error\[|cannot find|undefined symbol" /tmp/build.log | head -30
-          tail -20 /tmp/build.log
-          exit $rc
-      - name: Upload
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: crosvm-android
-          path: |
-            crosvm/target/aarch64-linux-android/release/crosvm
-            /tmp/build.log
-          if-no-files-found: warn
