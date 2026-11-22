@@ -42,7 +42,7 @@ jobs:
             RANLIB="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
             STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" -C libcap libcap.a
           mkdir -p sysroot/usr/include/sys sysroot/usr/lib
-          cp include/sys/capability.h sysroot/usr/include/sys/
+          cp libcap/include/sys/capability.h sysroot/usr/include/sys/
           cp libcap/libcap.a sysroot/usr/lib/
           ls sysroot/usr/include/sys/capability.h sysroot/usr/lib/libcap.a
       - name: Cross wrappers
