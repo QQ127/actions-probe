@@ -8,31 +8,13 @@ jobs:
     steps:
       - name: Env
         run: |
-          sudo dpkg --add-architecture arm64
-          sudo sed -i '/^Types:/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources || true
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config libssl-dev \
-            libdrm-dev libwayland-dev wayland-protocols protobuf-compiler gcc-aarch64-linux-gnu python3 curl
-          mkdir -p sysroot debs && cd debs
-          apt-get download libwayland-dev:arm64 libwayland-client0:arm64 libwayland-server0:arm64 \
-            libwayland-cursor0:arm64 libwayland-egl1:arm64 libxkbcommon-dev:arm64 libxkbcommon0:arm64 \
-            libdrm-dev:arm64 libdrm2:arm64 libcap-dev:arm64 libcap2:arm64 2>/dev/null || true
-          for d in *.deb; do dpkg -x "$d" ../sysroot; done
-          cd ..
-          ls sysroot/usr/lib/aarch64-linux-gnu | head -5
+          sudo apt-get install -y -qq build-essential pkg-config unzip curl python3 protobuf-compiler
+          curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          unzip -q ndk.zip
+          echo "NDK=$PWD/android-ndk-r26d" >> $GITHUB_ENV
           rustup toolchain install stable --profile minimal
-          rustup target add --toolchain stable aarch64-unknown-linux-gnu
-      - name: Build libcap for aarch64
-        run: |
-          curl -sSLO https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.69.tar.gz
-          tar xf libcap-2.69.tar.gz
-          cd libcap-2.69
-          make -j4 CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar BUILD_CC=gcc BUILD_AR=ar OBJCOPY=aarch64-linux-gnu-objcopy \
-            RANLIB=aarch64-linux-gnu-ranlib STRIP=aarch64-linux-gnu-strip \
-            GOLANG=no PAM_CAP=no USE_GPERF=no LIBATTR=no RAISE_SETFCAP=no \
-            DESTDIR=$PWD/sysroot prefix=/usr lib=lib install
-          ls sysroot/usr/lib/libcap.a sysroot/usr/lib/pkgconfig/libcap.pc
+          rustup target add --toolchain stable aarch64-linux-android
       - name: Clone
         run: |
           git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
@@ -45,33 +27,25 @@ jobs:
           rustup target add --toolchain stable aarch64-unknown-none-softfloat
           cd crosvm/droidvm-shim
           cargo build --release
-          ELF=$(ls target/aarch64-unknown-none-softfloat/release/droidvm-shim)
-          aarch64-linux-gnu-objcopy -O binary "$ELF" ../hypervisor/src/gunyah/shim.bin
+          aarch64-linux-gnu-objcopy -O binary target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin || \
+            llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
           ls -l ../hypervisor/src/gunyah/shim.bin
-      - name: Build
+      - name: Build crosvm (android)
         working-directory: crosvm
         env:
           RUSTUP_TOOLCHAIN: stable
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
-          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          RUSTFLAGS: "-C target-feature=+crt-static -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
-          PKG_CONFIG_PATH: /home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig
-          PKG_CONFIG_LIBDIR: /home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig
-          PKG_CONFIG_SYSROOT_DIR: /home/runner/work/actions-probe/actions-probe/sysroot
-          PKG_CONFIG_ALLOW_CROSS: "1"
-          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
-          CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
-          CFLAGS_aarch64_unknown_linux_gnu: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
-          LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
+          NDK_BIN: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          CC_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          CXX_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
+          AR_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          RANLIB_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
         run: |
-          set +e
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
-          grep -rn '^rand = ' --include=Cargo.toml . | head
           rm -f Cargo.lock
-          cargo build --release --target aarch64-unknown-linux-gnu \
-            --features gunyah > /tmp/build.log 2>&1
+          set +e
+          cargo build --release --target aarch64-linux-android --features gunyah > /tmp/build.log 2>&1
           rc=$?
           echo "exit=$rc"
           grep -E "^error|error\[|cannot find|not found" /tmp/build.log | head -20
@@ -81,8 +55,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crosvm-aarch64
+          name: crosvm-android
           path: |
-            crosvm/target/aarch64-unknown-linux-gnu/release/crosvm
+            crosvm/target/aarch64-linux-android/release/crosvm
             /tmp/build.log
           if-no-files-found: warn
