@@ -45,7 +45,7 @@ jobs:
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
         run: |
           set +e
-          cargo build --release --target aarch64-unknown-linux-gnu \
+          cargo build --locked --release --target aarch64-unknown-linux-gnu \
             --no-default-features --features gunyah > /tmp/build.log 2>&1
           rc=$?
           echo "exit=$rc"
