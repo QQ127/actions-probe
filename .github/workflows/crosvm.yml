@@ -9,7 +9,7 @@ jobs:
       - name: Env
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config unzip curl python3
+          sudo apt-get install -y -qq build-essential pkg-config unzip curl python3 libwayland-bin wayland-protocols libwayland-dev
           curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip -q ndk.zip
           echo "NDK=$PWD/android-ndk-r26d" >> $GITHUB_ENV
