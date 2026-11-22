@@ -14,7 +14,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential pkg-config libssl-dev \
             libdrm-dev libwayland-dev wayland-protocols protobuf-compiler gcc-aarch64-linux-gnu python3 curl
-          sudo apt-get install -y -qq libwayland-dev:arm64 libdrm-dev:arm64 libxkbcommon-dev:arm64 libcap-dev:arm64 || true
+          mkdir -p sysroot debs && cd debs
+          apt-get download libwayland-dev:arm64 libwayland-client0:arm64 libwayland-server0:arm64 \
+            libwayland-cursor0:arm64 libwayland-egl1:arm64 libxkbcommon-dev:arm64 libxkbcommon0:arm64 \
+            libdrm-dev:arm64 libdrm2:arm64 libcap-dev:arm64 libcap2:arm64 2>/dev/null || true
+          for d in *.deb; do dpkg -x "$d" ../sysroot; done
+          cd ..
+          ls sysroot/usr/lib/aarch64-linux-gnu | head -5
           rustup toolchain install stable --profile minimal
           rustup target add --toolchain stable aarch64-unknown-linux-gnu
       - name: Build libcap for aarch64
@@ -50,8 +56,10 @@ jobs:
           CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
           AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          RUSTFLAGS: "-C target-feature=+crt-static -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
-          PKG_CONFIG_PATH: /home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig
+          RUSTFLAGS: "-C target-feature=+crt-static -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
+          PKG_CONFIG_PATH: /home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig
+          PKG_CONFIG_LIBDIR: /home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu/pkgconfig:/home/runner/work/actions-probe/actions-probe/sysroot/usr/share/pkgconfig
+          PKG_CONFIG_SYSROOT_DIR: /home/runner/work/actions-probe/actions-probe/sysroot
           PKG_CONFIG_ALLOW_CROSS: "1"
           CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
