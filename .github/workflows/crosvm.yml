@@ -18,7 +18,8 @@ jobs:
           curl -sSLO https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.69.tar.gz
           tar xf libcap-2.69.tar.gz
           cd libcap-2.69
-          make -j4 CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar BUILD_CC=gcc BUILD_AR=ar \
+          make -j4 CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar BUILD_CC=gcc BUILD_AR=ar OBJCOPY=aarch64-linux-gnu-objcopy \
+            RANLIB=aarch64-linux-gnu-ranlib STRIP=aarch64-linux-gnu-strip \
             GOLANG=no PAM_CAP=no USE_GPERF=no LIBATTR=no RAISE_SETFCAP=no \
             DESTDIR=$PWD/sysroot prefix=/usr lib=lib install
           ls sysroot/usr/lib/libcap.a sysroot/usr/lib/pkgconfig/libcap.pc
