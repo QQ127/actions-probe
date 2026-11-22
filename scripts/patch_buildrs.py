@@ -20,6 +20,13 @@ SYMS = [
     "android_display_flip_to", "android_display_release_import", "android_display_has_consumer",
     "android_blit_ctx_destroy", "android_blit_ctx_create", "android_blit_ctx_blit",
     "__android_log_write_log_message", "__android_log_close",
+    "AAudioStreamBuilder_delete", "AAudioStreamBuilder_openStream", "AAudioStreamBuilder_setChannelCount",
+    "AAudioStreamBuilder_setDeviceId", "AAudioStreamBuilder_setDirection", "AAudioStreamBuilder_setFormat",
+    "AAudioStreamBuilder_setSampleRate", "AAudioStream_close", "AAudioStream_getChannelCount",
+    "AAudioStream_getFormat", "AAudioStream_getSampleRate", "AAudio_createStreamBuilder",
+    "android_blit_ctx_import_dmabuf", "android_blit_ctx_map", "android_blit_ctx_release_import",
+    "android_display_import_dmabuf", "android_display_is_vulkan_blit_available",
+    "android_set_process_profiles", "create_android_surface",
 ]
 
 stub_src = "/* generated: VNC is unused on this build */\n#include <stdint.h>\n"
