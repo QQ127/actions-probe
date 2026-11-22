@@ -72,6 +72,23 @@ jobs:
           RUSTFLAGS: "-L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
         run: |
+          python3 - <<'PYEOF'
+import io
+p='third_party/minijail/libminijail.c'
+s=open(p).read()
+stub = '''#ifdef __ANDROID__
+#include <errno.h>
+static int fexecve(int fd, char *const argv[], char *const envp[]) {
+	(void)fd; (void)argv; (void)envp; errno = ENOSYS; return -1;
+}
+#endif
+'''
+if 'ANDROID' not in s.split('\n')[0:40].__str__():
+    i = s.find('#include')
+    s = s[:i] + stub + s[i:]
+    open(p,'w').write(s)
+    print('patched minijail for android')
+PYEOF
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
           rm -f Cargo.lock
           set +e
