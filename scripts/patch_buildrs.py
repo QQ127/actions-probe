@@ -27,6 +27,11 @@ SYMS = [
     "android_blit_ctx_import_dmabuf", "android_blit_ctx_map", "android_blit_ctx_release_import",
     "android_display_import_dmabuf", "android_display_is_vulkan_blit_available",
     "android_set_process_profiles", "create_android_surface",
+    "dwl_context_destroy", "dwl_context_dispatch", "dwl_context_dmabuf_new", "dwl_context_fd",
+    "dwl_context_new", "dwl_context_next_event", "dwl_context_pending_events", "dwl_context_setup",
+    "dwl_context_surface_new", "dwl_dmabuf_destroy", "dwl_surface_buffer_in_use", "dwl_surface_close_requested",
+    "dwl_surface_commit", "dwl_surface_descriptor", "dwl_surface_destroy", "dwl_surface_flip",
+    "dwl_surface_flip_to", "dwl_surface_set_position", "dwl_surface_set_scanout_id",
 ]
 
 stub_src = "/* generated: VNC is unused on this build */\n#include <stdint.h>\n"
