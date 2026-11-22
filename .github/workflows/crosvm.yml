@@ -21,6 +21,9 @@ jobs:
           cd ..
           mkdir -p sysroot/usr/lib/aarch64-linux-gnu/pkgconfig
           printf '%s\n' 'Name: libdrm_intel' 'Description: stub' 'Version: 2.4.120' 'libdir=/usr/lib/aarch64-linux-gnu' 'includedir=/usr/include/libdrm' 'Libs: -L${libdir} -ldrm' 'Cflags: -I${includedir}' > sysroot/usr/lib/aarch64-linux-gnu/pkgconfig/libdrm_intel.pc
+          P=sysroot/usr/lib/aarch64-linux-gnu/pkgconfig
+          printf '%s\n' 'Name: egl' 'Description: stub' 'Version: 1.5' 'Libs: -lEGL' 'Cflags:' > $P/egl.pc
+          printf '%s\n' 'Name: glesv2' 'Description: stub' 'Version: 3.2' 'Libs: -lGLESv2' 'Cflags:' > $P/glesv2.pc
           curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip -q ndk.zip
           echo "NDK=$PWD/android-ndk-r26d" >> $GITHUB_ENV
@@ -57,9 +60,6 @@ jobs:
           mkdir -p sysroot/usr/include/sys sysroot/usr/lib
           cp libcap/include/sys/capability.h sysroot/usr/include/sys/
           mkdir -p sysroot/usr/include/cutils sysroot/usr/include/log
-          P=sysroot/usr/lib/aarch64-linux-gnu/pkgconfig
-          printf '%s\n' 'Name: egl' 'Description: stub' 'Version: 1.5' 'Libs: -lEGL' 'Cflags:' > $P/egl.pc
-          printf '%s\n' 'Name: glesv2' 'Description: stub' 'Version: 3.2' 'Libs: -lGLESv2' 'Cflags:' > $P/glesv2.pc
           printf '%s\n' '#pragma once' '#include <android/log.h>' > sysroot/usr/include/cutils/log.h
           cp sysroot/usr/include/cutils/log.h sysroot/usr/include/log/log.h
           printf '%s\n' '#pragma once' '#define PROPERTY_VALUE_MAX 92' '#ifdef __cplusplus' 'extern "C" {' '#endif' \
