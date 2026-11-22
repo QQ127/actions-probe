@@ -1,0 +1,28 @@
+name: crosvm-macos
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/crosvm.yml']
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Env
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config libssl-dev libcap-dev             libdrm-dev libwayland-dev protobuf-compiler gcc-aarch64-linux-gnu musl-tools             python3 python3-pip
+          rustup target add aarch64-unknown-linux-musl aarch64-unknown-linux-gnu
+      - name: Clone crosvm (macOS branch)
+        run: git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
+      - name: Build
+        working-directory: crosvm
+        run: |
+          set -o pipefail
+          cargo build --release --target aarch64-unknown-linux-musl --features gunyah 2>&1 | tail -80
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: crosvm-aarch64
+          path: crosvm/target/aarch64-unknown-linux-musl/release/crosvm
+          if-no-files-found: warn
