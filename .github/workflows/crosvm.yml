@@ -19,7 +19,7 @@ jobs:
           tar xf libcap-2.69.tar.gz
           cd libcap-2.69
           make -j4 CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar \
-            GOLANG=no PAM_CAP=no BUILD_GPERF=no LIBATTR=no RAISE_SETFCAP=no \
+            GOLANG=no PAM_CAP=no USE_GPERF=no LIBATTR=no RAISE_SETFCAP=no \
             DESTDIR=$PWD/sysroot prefix=/usr lib=lib install
           ls sysroot/usr/lib/libcap.a sysroot/usr/lib/pkgconfig/libcap.pc
       - name: Clone
