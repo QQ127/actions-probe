@@ -31,8 +31,8 @@ jobs:
           rustup target add --toolchain stable aarch64-linux-android aarch64-unknown-none-softfloat
       - name: Clone
         run: |
-          git clone --depth 60 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
-          cd crosvm && git checkout -q 2f3fcf21 && git log -1 --oneline
+          git clone --depth 80 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
+          git -C crosvm checkout -q 2f3fcf21 && git -C crosvm log -1 --oneline
           rm -rf crosvm/third_party/minijail
           rm -rf crosvm/third_party/virglrenderer
           git clone --depth 1 https://gitlab.freedesktop.org/virgl/virglrenderer.git crosvm/third_party/virglrenderer || \
