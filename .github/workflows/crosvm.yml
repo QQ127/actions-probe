@@ -54,9 +54,14 @@ jobs:
           make -j4 CC="$CC" AR="$AR" BUILD_CC=gcc BUILD_AR=ar USE_GPERF=no PAM_CAP=no LIBATTR=no RAISE_SETFCAP=no -C libcap libcap.a
           mkdir -p sysroot/usr/include/sys sysroot/usr/lib
           cp libcap/include/sys/capability.h sysroot/usr/include/sys/
-          mkdir -p sysroot/usr/include/cutils
+          mkdir -p sysroot/usr/include/cutils sysroot/usr/include/log
           printf '%s\n' '#pragma once' '#include <android/log.h>' > sysroot/usr/include/cutils/log.h
-          ls sysroot/usr/include/cutils/log.h
+          cp sysroot/usr/include/cutils/log.h sysroot/usr/include/log/log.h
+          printf '%s\n' '#pragma once' '#ifdef __cplusplus' 'extern "C" {' '#endif' \
+            'int property_get(const char* key, char* value, const char* default_value);' \
+            'int property_set(const char* key, const char* value);' \
+            '#ifdef __cplusplus' '}' '#endif' > sysroot/usr/include/cutils/properties.h
+          ls sysroot/usr/include/cutils/
           cp libcap/libcap.a sysroot/usr/lib/
       - name: Cross wrappers
         run: |
