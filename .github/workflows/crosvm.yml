@@ -33,6 +33,10 @@ jobs:
             git clone --depth 1 https://github.com/Droid-VM/virglrenderer.git crosvm/third_party/virglrenderer || true
           ls crosvm/third_party/virglrenderer | head -3
           git clone --depth 1 https://chromium.googlesource.com/chromiumos/platform/minijail crosvm/third_party/minijail
+          rm -rf crosvm/third_party/minigbm
+          git clone --depth 1 https://chromium.googlesource.com/chromiumos/platform/minigbm crosvm/third_party/minigbm || \
+            git clone --depth 1 https://github.com/Droid-VM/minigbm.git crosvm/third_party/minigbm || true
+          ls crosvm/third_party/minigbm | head -3
       - name: Build droidvm-shim
         env:
           RUSTUP_TOOLCHAIN: stable
