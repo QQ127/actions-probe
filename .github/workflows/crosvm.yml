@@ -75,6 +75,25 @@ jobs:
           printf '#!/bin/sh\nexec "%s/llvm-strip" "$@"\n' "$B" > $HOME/xb/aarch64-android--strip
           chmod +x $HOME/xb/*
           echo "$HOME/xb" >> $GITHUB_PATH
+      - name: Meson cross file
+        run: |
+          B="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          sudo mkdir -p /usr/local/share/meson/cross
+          sudo tee /usr/local/share/meson/cross/aarch64 >/dev/null <<EOF
+          [binaries]
+          c = '$B/aarch64-linux-android24-clang'
+          cpp = '$B/aarch64-linux-android24-clang++'
+          ar = '$B/llvm-ar'
+          strip = '$B/llvm-strip'
+          pkgconfig = 'pkg-config'
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+          EOF
+          cat /usr/local/share/meson/cross/aarch64
       - name: Build crosvm
         working-directory: crosvm
         env:
