@@ -139,6 +139,13 @@ jobs:
           BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=/home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
         run: |
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
+      - name: Probe output
+        if: always()
+        run: |
+          echo "--- find crosvm binaries ---"
+          find . -name 'crosvm' -type f -size +1M 2>/dev/null | head -5
+          ls -l crosvm/target/aarch64-linux-android/release/ 2>/dev/null | head -10
+          tail -5 /tmp/build.log 2>/dev/null
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
