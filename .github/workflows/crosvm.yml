@@ -28,6 +28,16 @@ jobs:
           git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
           rm -rf crosvm/third_party/minijail
           git clone --depth 1 https://chromium.googlesource.com/chromiumos/platform/minijail crosvm/third_party/minijail
+      - name: Build droidvm-shim
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: |
+          rustup target add --toolchain stable aarch64-unknown-none-softfloat
+          cd crosvm/droidvm-shim
+          cargo build --release
+          ELF=$(ls target/aarch64-unknown-none-softfloat/release/droidvm-shim)
+          objcopy -O binary "$ELF" ../hypervisor/src/gunyah/shim.bin
+          ls -l ../hypervisor/src/gunyah/shim.bin
       - name: Build
         working-directory: crosvm
         env:
