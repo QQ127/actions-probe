@@ -9,12 +9,12 @@ jobs:
       - name: Env
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config unzip curl python3 protobuf-compiler
+          sudo apt-get install -y -qq build-essential pkg-config unzip curl python3
           curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip -q ndk.zip
           echo "NDK=$PWD/android-ndk-r26d" >> $GITHUB_ENV
           rustup toolchain install stable --profile minimal
-          rustup target add --toolchain stable aarch64-linux-android
+          rustup target add --toolchain stable aarch64-linux-android aarch64-unknown-none-softfloat
       - name: Clone
         run: |
           git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
@@ -24,72 +24,40 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: stable
         run: |
-          rustup target add --toolchain stable aarch64-unknown-none-softfloat
           cd crosvm/droidvm-shim
           cargo build --release
-          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" -O binary \
-            target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" -O binary target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
           ls -l ../hypervisor/src/gunyah/shim.bin
-      - name: Build libcap for android
+      - name: Build libcap
         run: |
           CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           AR="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
           curl -sSLO https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.69.tar.gz
           tar xf libcap-2.69.tar.gz
           cd libcap-2.69
-          make -j4 CC="$CC" AR="$AR" BUILD_CC=gcc BUILD_AR=ar USE_GPERF=no PAM_CAP=no LIBATTR=no \
-            RAISE_SETFCAP=no OBJCOPY="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" \
-            RANLIB="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
-            STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" -C libcap libcap.a
+          make -j4 CC="$CC" AR="$AR" BUILD_CC=gcc BUILD_AR=ar USE_GPERF=no PAM_CAP=no LIBATTR=no RAISE_SETFCAP=no -C libcap libcap.a
           mkdir -p sysroot/usr/include/sys sysroot/usr/lib
           cp libcap/include/sys/capability.h sysroot/usr/include/sys/
           cp libcap/libcap.a sysroot/usr/lib/
           ls sysroot/usr/include/sys/capability.h sysroot/usr/lib/libcap.a
-      - name: Cross wrappers
-        run: |
-          mkdir -p $HOME/xb
-          for t in gcc g++ ar ranlib strip objcopy; do
-            printf '#!/bin/sh\nexec "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-%s" "$@"\n' "$t" > $HOME/xb/aarch64-android--$t
-            chmod +x $HOME/xb/aarch64-android--$t
-          done
-          printf '#!/bin/sh\nexec "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" "$@"\n' > $HOME/xb/aarch64-android--gcc
-          printf '#!/bin/sh\nexec "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" "$@"\n' > $HOME/xb/aarch64-android--g++
-          chmod +x $HOME/xb/aarch64-android--gcc $HOME/xb/aarch64-android--g++
-          echo "$HOME/xb" >> $GITHUB_PATH
-      - name: Build crosvm (android)
+      - name: Build crosvm
         working-directory: crosvm
         env:
           RUSTUP_TOOLCHAIN: stable
-          NDK_BIN: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin
-          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          CC_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          CXX_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
-          AR_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          RANLIB_aarch64_linux_android: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          CC_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          CXX_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
+          AR_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
           CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
           RUSTFLAGS: "-L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
-          BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android: "--sysroot=${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
         run: |
-          python3 - <<'PYEOF'
-import io
-p='third_party/minijail/libminijail.c'
-s=open(p).read()
-stub = '''#ifdef __ANDROID__
-#include <errno.h>
-static int fexecve(int fd, char *const argv[], char *const envp[]) {
-	(void)fd; (void)argv; (void)envp; errno = ENOSYS; return -1;
-}
-#endif
-'''
-if 'ANDROID' not in s.split('\n')[0:40].__str__():
-    i = s.find('#include')
-    s = s[:i] + stub + s[i:]
-    open(p,'w').write(s)
-    print('patched minijail for android')
-PYEOF
           grep -rl '^rand = "0.8"' --include=Cargo.toml . | xargs -r sed -i 's/^rand = "0.8"/rand = "0.9"/'
+          test -f /tmp/minijail_fexecve.c || true
+          printf '%s\n' '#ifdef __ANDROID__' '#include <errno.h>' 'static int fexecve(int fd, char *const a[], char *const e[]) { (void)fd; (void)a; (void)e; errno = ENOSYS; return -1; }' '#endif' > /tmp/stub.h
+          sed -i '1e cat /tmp/stub.h' third_party/minijail/libminijail.c
+          head -8 third_party/minijail/libminijail.c
           rm -f Cargo.lock
           set +e
           cargo build --release --target aarch64-linux-android --features gunyah > /tmp/build.log 2>&1
