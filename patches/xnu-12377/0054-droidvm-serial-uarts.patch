@@ -180,21 +180,14 @@ index f8fcbc2..5785ba7 100644
  
  kern_return_t serial_irq_enable(serial_device_t device);
 diff --git a/pexpert/pexpert/arm64/BCM2837.h b/pexpert/pexpert/arm64/BCM2837.h
-index 6ace0b0..17cb1ab 100644
 --- a/pexpert/pexpert/arm64/BCM2837.h
 +++ b/pexpert/pexpert/arm64/BCM2837.h
-@@ -18,6 +18,14 @@
- #define BCM2837
- #define ARM_ARCH_TIMER
+@@ -33,6 +33,8 @@
  
-+/*
-+ * DroidVM: the serial devices crosvm emulates. pe_serial.c takes the one the ADT's /defaults droidvm,serial-device names (DarwinBoot
-+ * points it at the VM's console UART), by its compatible: "arm,pl011" for the SBSA UART (a PL011 subset), "ns16550a" for a
-+ * 16550 COM port. A VM without either has no such property and no serial console, as before.
-+ */
-+#define PL011_UART
+ /* UniXNU virt boards: PL011 named uart0 under arm-io (QEMU virt, crosvm SBSA UART). */
+ #define PL011_UART
++/* DroidVM: the 16550 COM port crosvm emulates (--serial hardware=serial); pe_serial.c's NS16550 driver. */
 +#define NS16550_UART
-+
- #define __ARM_ARCH__              8
- #define __ARM_VMSA__              8
- #define __ARM_VFP__               4
+ #define PI3_BREAK                               asm volatile("brk #0");
+ 
+ #define BCM2837_GPFSEL0_V               (pi3_gpio_base_vaddr + 0x0)
