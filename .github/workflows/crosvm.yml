@@ -103,8 +103,9 @@ jobs:
           meson compile -C epoxy-build
           meson install -C epoxy-build
           for pc in epoxy-sysroot/lib/pkgconfig/epoxy.pc epoxy-sysroot/lib/aarch64-linux-gnu/pkgconfig/epoxy.pc; do
-            [ -f "$pc" ] && printf '\nepoxy_has_egl=1\nepoxy_has_glx=0\n' >> "$pc" && cat "$pc"
+            if [ -f "$pc" ]; then printf '\nepoxy_has_egl=1\nepoxy_has_glx=0\n' >> "$pc"; cat "$pc"; fi
           done
+          true
       - name: Build crosvm
         working-directory: crosvm
         env:
