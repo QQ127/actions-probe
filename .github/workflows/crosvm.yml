@@ -83,7 +83,7 @@ jobs:
           head -8 third_party/minijail/libminijail.c
           rm -f Cargo.lock
           set +e
-          cargo build --release --target aarch64-linux-android --features gunyah > /tmp/build.log 2>&1
+          cargo build --release --target aarch64-linux-android --features gunyah,android_display > /tmp/build.log 2>&1
           rc=$?
           echo "exit=$rc"
           grep -E "^error|error\[|cannot find|not found" /tmp/build.log | head -20
