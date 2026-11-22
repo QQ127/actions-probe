@@ -14,17 +14,20 @@ jobs:
           sudo apt-get install -y -qq build-essential pkg-config libssl-dev libcap-dev             libdrm-dev libwayland-dev protobuf-compiler musl-tools python3
           rustup toolchain install stable --profile minimal
           rustup target add --toolchain stable aarch64-unknown-linux-musl
-      - name: Clone crosvm (macOS branch, with submodules)
+      - name: Clone
+        run: git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
+      - name: Drop minijail patch
+        working-directory: crosvm
         run: |
-          git clone --depth 1 -b macOS --recurse-submodules --shallow-submodules             https://github.com/Droid-VM/crosvm.git crosvm
-          ls crosvm/third_party/minijail/rust/minijail 2>/dev/null | head -3
-      - name: Build
+          sed -i '/minijail = { path = "third_party/d' Cargo.toml
+          grep -A6 '\[patch.crates-io\]' Cargo.toml
+      - name: Build minimal
         working-directory: crosvm
         env:
           RUSTUP_TOOLCHAIN: stable
         run: |
           set -o pipefail
-          cargo build --release --target aarch64-unknown-linux-musl --features gunyah 2>&1 | tail -120
+          cargo build --release --target aarch64-unknown-linux-musl             --no-default-features --features gunyah 2>&1 | tail -120
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
