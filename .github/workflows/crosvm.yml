@@ -30,6 +30,17 @@ jobs:
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" -O binary \
             target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
           ls -l ../hypervisor/src/gunyah/shim.bin
+      - name: Cross wrappers
+        run: |
+          mkdir -p $HOME/xb
+          for t in gcc g++ ar ranlib strip objcopy; do
+            printf '#!/bin/sh\nexec "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-%s" "$@"\n' "$t" > $HOME/xb/aarch64-android--$t
+            chmod +x $HOME/xb/aarch64-android--$t
+          done
+          printf '#!/bin/sh\nexec "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" "$@"\n' > $HOME/xb/aarch64-android--gcc
+          printf '#!/bin/sh\nexec "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" "$@"\n' > $HOME/xb/aarch64-android--g++
+          chmod +x $HOME/xb/aarch64-android--gcc $HOME/xb/aarch64-android--g++
+          echo "$HOME/xb" >> $GITHUB_PATH
       - name: Build crosvm (android)
         working-directory: crosvm
         env:
