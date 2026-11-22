@@ -1,8 +1,6 @@
 name: crosvm-macos
 on:
   workflow_dispatch:
-  push:
-    paths: ['.github/workflows/crosvm.yml']
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -11,10 +9,19 @@ jobs:
       - name: Env
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config libssl-dev libcap-dev \
-            libdrm-dev libwayland-dev protobuf-compiler gcc-aarch64-linux-gnu python3
+          sudo apt-get install -y -qq build-essential pkg-config libssl-dev \
+            libdrm-dev libwayland-dev protobuf-compiler gcc-aarch64-linux-gnu python3 curl
           rustup toolchain install stable --profile minimal
           rustup target add --toolchain stable aarch64-unknown-linux-gnu
+      - name: Build libcap for aarch64
+        run: |
+          curl -sSLO https://www.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.69.tar.gz
+          tar xf libcap-2.69.tar.gz
+          cd libcap-2.69
+          make -j4 CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar \
+            GOLANG=no PAM_CAP=no BUILD_GPERF=no LIBATTR=no RAISE_SETFCAP=no \
+            DESTDIR=$PWD/sysroot prefix=/usr lib=lib install
+          ls sysroot/usr/lib/libcap.a sysroot/usr/lib/pkgconfig/libcap.pc
       - name: Clone
         run: |
           git clone --depth 1 -b macOS https://github.com/Droid-VM/crosvm.git crosvm
@@ -29,6 +36,10 @@ jobs:
           AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           RUSTFLAGS: "-C target-feature=+crt-static"
+          PKG_CONFIG_PATH: /home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib/pkgconfig
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          CFLAGS_aarch64_unknown_linux_gnu: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
+          LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
         run: |
           set +e
           cargo build --release --target aarch64-unknown-linux-gnu \
