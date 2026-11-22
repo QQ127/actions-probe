@@ -40,8 +40,10 @@ jobs:
           make -j4 CC="$CC" AR="$AR" BUILD_CC=gcc BUILD_AR=ar USE_GPERF=no PAM_CAP=no LIBATTR=no \
             RAISE_SETFCAP=no OBJCOPY="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" \
             RANLIB="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
-            STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
-            DESTDIR=$PWD/sysroot prefix=/usr lib=lib install
+            STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" libcap.a
+          mkdir -p sysroot/usr/include/sys sysroot/usr/lib
+          cp include/sys/capability.h sysroot/usr/include/sys/
+          cp libcap/libcap.a sysroot/usr/lib/
           ls sysroot/usr/include/sys/capability.h sysroot/usr/lib/libcap.a
       - name: Cross wrappers
         run: |
