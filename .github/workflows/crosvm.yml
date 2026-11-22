@@ -45,6 +45,8 @@ jobs:
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib"
         run: |
           set +e
+          sed -i 's/^rand = "0.8"/rand = "0.9"/' devices/Cargo.toml
+          grep -n '^rand' devices/Cargo.toml
           rm -f Cargo.lock
           cargo build --release --target aarch64-unknown-linux-gnu \
             --no-default-features --features gunyah > /tmp/build.log 2>&1
