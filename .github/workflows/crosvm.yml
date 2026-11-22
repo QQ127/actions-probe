@@ -59,7 +59,7 @@ jobs:
           grep -rn '^rand = ' --include=Cargo.toml . | head
           rm -f Cargo.lock
           cargo build --release --target aarch64-unknown-linux-gnu \
-            --no-default-features --features gunyah > /tmp/build.log 2>&1
+            --features gunyah > /tmp/build.log 2>&1
           rc=$?
           echo "exit=$rc"
           grep -E "^error|error\[|cannot find|not found" /tmp/build.log | head -20
