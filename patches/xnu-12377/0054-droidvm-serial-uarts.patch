@@ -1,3 +1,7 @@
+From: QQ127 <100571300+QQ127@users.noreply.github.com>
+Date: Sat, 22 Nov 2026 10:00:00 +0800
+Subject: [PATCH] droidvm: serial console over the VM's UART (SBSA PL011 + 16550)
+
 The serial devices crosvm emulates as the kernel's serial console: the SBSA UART (a PL011 subset, xnu-12377's own PL011_UART
 driver, "arm,pl011") and a 16550 COM port (a new NS16550_UART driver, "ns16550a": byte registers one byte apart, polled). xnu-12377
 takes the one device a phandle names: the ADT's /defaults serial-device, the boot-arg serial-device-name=NODE, and here
@@ -9,6 +13,7 @@ clears it, so it runs as before and polls nothing.
 The fileset matcher paired the original kernel's PAGE_SHIFT_CONST with cons_ops_index once this code referenced it (APFS then
 paged in with a page shift of 0 or 1): ipados27/fileset-reviewed.json holds the pairing.
 
+---
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 index e8db5d8..c76a291 100644
 --- a/osfmk/arm/arm_init.c
