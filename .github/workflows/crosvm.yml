@@ -16,7 +16,7 @@ jobs:
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
           sudo apt-get update -qq
           mkdir -p sysroot debs && cd debs
-          apt-get download libwayland-dev:arm64 libwayland-client0:arm64 libwayland-server0:arm64 libwayland-cursor0:arm64 libwayland-egl1:arm64 2>/dev/null || true
+          apt-get download libwayland-dev:arm64 libwayland-client0:arm64 libwayland-server0:arm64 libwayland-cursor0:arm64 libwayland-egl1:arm64 libdrm-dev:arm64 libdrm2:arm64 2>/dev/null || true
           for d in *.deb; do dpkg -x "$d" ../sysroot; done
           cd ..
           curl -sSLo ndk.zip https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
@@ -75,7 +75,7 @@ jobs:
           CC_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           CXX_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
           AR_aarch64_linux_android: /home/runner/work/actions-probe/actions-probe/android-ndk-r26d/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/include -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
+          CFLAGS: "-I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include/libdrm -I/home/runner/work/actions-probe/actions-probe/lvnc-sysroot/include -I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include -I/home/runner/work/actions-probe/actions-probe/sysroot/usr/include -Wno-error -Wno-implicit-function-declaration -Wno-unused-command-line-argument"
           CPPFLAGS: "-I/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/include"
           LDFLAGS: "-L/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
           RUSTFLAGS: "-L native=/tmp/stublib -L native=/home/runner/work/actions-probe/actions-probe/libcap-2.69/sysroot/usr/lib -L native=/home/runner/work/actions-probe/actions-probe/sysroot/usr/lib/aarch64-linux-gnu"
