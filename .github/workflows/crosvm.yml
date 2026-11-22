@@ -27,8 +27,8 @@ jobs:
           rustup target add --toolchain stable aarch64-unknown-none-softfloat
           cd crosvm/droidvm-shim
           cargo build --release
-          aarch64-linux-gnu-objcopy -O binary target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin || \
-            llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" -O binary \
+            target/aarch64-unknown-none-softfloat/release/droidvm-shim ../hypervisor/src/gunyah/shim.bin
           ls -l ../hypervisor/src/gunyah/shim.bin
       - name: Build crosvm (android)
         working-directory: crosvm
